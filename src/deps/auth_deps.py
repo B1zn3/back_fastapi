@@ -1,10 +1,10 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
-from jose import JWTError  # предполагаем использование python-jose
+from jose import JWTError
 
 from src.deps.db_deps import get_db, get_redis_service
-from src.cruds.user_cruds.user_crud import usercrud
+from src.cruds.auth_crud import authcrud
 from src.redis.redis_client import RedisClient
 from src.utils.auth_utils import JWTToken
 
@@ -18,7 +18,6 @@ async def get_current_user(
     token = credentials.credentials
     try:
         payload = JWTToken.decode_token(token)
-        # проверяем тип токена
         if payload.get("type") != "access":
             raise HTTPException(status_code=401, detail="Неверный тип токена")
         user_id_str = payload.get("sub")
@@ -38,7 +37,7 @@ async def get_current_user(
     except Exception as e:
         raise HTTPException(status_code=401, detail="Ошибка аутентификации")
 
-    user = await usercrud.get(db, user_id)
+    user = await authcrud.get_with_role(db, user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="Пользователь не найден или неактивен")
     return user

@@ -30,6 +30,7 @@ class City(Base):
     name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
 
     applicants: Mapped[List["Applicant"]] = relationship(back_populates="city")
+    vacancies: Mapped[List["Vacancy"]] = relationship(back_populates="city")  
 
 
 class Role(Base):
@@ -156,14 +157,15 @@ class Vacancy(Base):
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     company_id: Mapped[int] = mapped_column(Integer, ForeignKey('companies.id'), nullable=False)
     profession_id: Mapped[int] = mapped_column(Integer, ForeignKey('professions.id'), nullable=False)
-    
     employment_type_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('employment_types.id'))
     work_schedule_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('work_schedules.id'))
+    city_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('cities.id'))  
 
     company: Mapped["Company"] = relationship(back_populates="vacancies")
     profession: Mapped["Profession"] = relationship(back_populates="vacancies")
     employment_type: Mapped[Optional["EmploymentType"]] = relationship(back_populates="vacancies")
     work_schedule: Mapped[Optional["WorkSchedule"]] = relationship(back_populates="vacancies")
+    city: Mapped[Optional["City"]] = relationship(back_populates="vacancies")  
     skills: Mapped[List["Skill"]] = relationship(secondary=vacancy_skills, back_populates="vacancies")
     applications: Mapped[List["Application"]] = relationship(back_populates="vacancy")
 
@@ -190,7 +192,7 @@ class Application(Base):
 
     vacancy_id: Mapped[int] = mapped_column(Integer, ForeignKey('vacancies.id'), primary_key=True)
     resume_id: Mapped[int] = mapped_column(Integer, ForeignKey('resumes.id'), primary_key=True)
-    status: Mapped[Optional[str]] = mapped_column(String, unique=True, default='pending')
+    status: Mapped[Optional[str]] = mapped_column(String, default='pending')
 
     vacancy: Mapped["Vacancy"] = relationship(back_populates="applications")
     resume: Mapped["Resume"] = relationship(back_populates="applications")

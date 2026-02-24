@@ -4,10 +4,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.deps.db_deps import get_db, get_redis_service
 from src.deps.auth_deps import get_current_user
-from src.cruds.user_cruds.user_crud import usercrud
-from src.cruds.user_cruds.role_crud import rolecrud
+from src.cruds.auth_crud import authcrud
+from src.cruds.role_crud import rolecrud
 from src.schemas.auth_schema import UserCreate, UserLogin, TokenResponse, RefreshTokenRequest
-from src.services.user_service import UserService
+from src.services.auth_service import AuthService
 from src.redis.redis_client import RedisClient
 from src.models.model import User
 from src.core.config import setting
@@ -21,7 +21,7 @@ async def register(
     user_data: UserCreate,
     db: AsyncSession = Depends(get_db)
 ):
-    service = UserService(usercrud, rolecrud)
+    service = AuthService(authcrud, rolecrud)
     try:
         await service.register(db, user_data)
         return {"msg": "Пользователь успешно зарегистрирован"}
@@ -41,7 +41,7 @@ async def login(
     db: AsyncSession = Depends(get_db),
     redis_client: RedisClient = Depends(get_redis_service)
 ):
-    service = UserService(usercrud, rolecrud)
+    service = AuthService(authcrud, rolecrud)
     try:
         tokens = await service.login(db, user_data, redis_client)
         return tokens
@@ -59,7 +59,7 @@ async def refresh(
     db: AsyncSession = Depends(get_db),
     redis_client: RedisClient = Depends(get_redis_service)
 ):
-    service = UserService(usercrud, rolecrud)
+    service = AuthService(authcrud, rolecrud)
     try:
         tokens = await service.refresh_tokens(refresh_request.refresh_token, db, redis_client)
         return tokens
@@ -88,6 +88,6 @@ async def logout(
     except Exception:
         raise HTTPException(status_code=401, detail="Невалидный access токен")
 
-    service = UserService(usercrud, rolecrud)
+    service = AuthService(authcrud, rolecrud)
     await service.logout(access_jti, current_user.id, refresh_request.refresh_token, redis_client)
     return {"msg": "Успешный выход"}

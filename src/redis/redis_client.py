@@ -113,3 +113,31 @@ class RedisClient:
     async def is_access_jti_blacklisted(self, jti: str) -> bool:
         await self.connect()
         return await self.client.exists(f"blacklist:access:{jti}") > 0
+    
+    async def increment_counter(self, key: str, amount: int = 1) -> int:
+        await self.connect()
+        return await self.client.incrby(key, amount)
+
+    async def get_counter(self, key: str) -> int:
+        await self.connect()
+        val = await self.client.get(key)
+        return int(val) if val else 0
+
+    async def set_counter(self, key: str, value: int, ttl: Optional[int] = None):
+        await self.connect()
+        if ttl:
+            await self.client.setex(key, ttl, value)
+        else:
+            await self.client.set(key, value)
+
+    async def cache_get(self, key: str) -> Optional[str]:
+        await self.connect()
+        return await self.client.get(key)
+
+    async def cache_set(self, key: str, value: str, ttl: int):
+        await self.connect()
+        await self.client.setex(key, ttl, value)
+
+    async def cache_delete(self, key: str):
+        await self.connect()
+        await self.client.delete(key)
