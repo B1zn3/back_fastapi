@@ -2,11 +2,11 @@ import uuid
 from datetime import datetime
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.core.config import setting
-from src.cruds import profile_crud
-from src.cruds.applicant_cruds import applicant_crud
+from src.cruds.applicant_cruds.applicant_crud import applicantcrud
 from src.cruds.auth_crud import authcrud
-from src.cruds.company_cruds import company_crud
+from src.cruds.company_cruds.company_crud import companycrud
 from src.cruds.role_crud import rolecrud
 from src.schemas.auth_schema import UserCreate, UserLogin, TokenResponse
 from src.redis.redis_client import RedisClient
@@ -14,12 +14,12 @@ from src.utils.auth_utils import JWTToken
 from src.core.hash import HashService
 
 class AuthService:
-    def __init__(self, user_crud, role_crud):
-        self.user_crud = user_crud
+    def __init__(self, auth_crud, role_crud):
+        self.auth_crud = auth_crud
         self.role_crud = role_crud
 
     async def register(self, db: AsyncSession, user_data: UserCreate):
-        existing = await self.user_crud.get_by_email(db, user_data.email)
+        existing = await self.auth_crud.get_by_email(db, user_data.email)
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -38,61 +38,54 @@ class AuthService:
             )
 
         hashed_password = HashService.get_password_hash(user_data.password)
-        user_dict = {
-            "email": user_data.email,
-            "password_hash": hashed_password,
-            "role_id": role.id,
-            "is_active": True,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
-        }
-        user = await self.user_crud.create(db, user_dict)
-        await db.flush()
 
         if user_data.role == "applicant":
-            applicant = await applicant_crud.applicantcrud.create(db, {})
-            await db.flush() 
-
-            profile_data = {
-                "user_id": user.id,
-                "applicant_id": applicant.id
-            }
-            await profile_crud.profilecrud.create(db, profile_data)
-
-        else: 
+            applicant = await applicantcrud.create(db, {})
+            await db.flush()
+            applicant_id = applicant.id
+            company_id = None
+        else:
             if not user_data.company_name:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Название компании обязательно для регистрации"
                 )
-            company = await company_crud.companycrud.create(db, {"name": user_data.company_name})
+            company = await companycrud.create(db, {"name": user_data.company_name})
             await db.flush()
+            company_id = company.id
+            applicant_id = None
 
-            profile_data = {
-                "user_id": user.id,
-                "company_id": company.id
-            }
-            await profile_crud.profilecrud.create(db, profile_data)
+        user_dict = {
+            "email": user_data.email,
+            "password": hashed_password,
+            "role_id": role.id,
+            "is_active": True,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+            "applicant_id": applicant_id,
+            "company_id": company_id
+        }
+        user = await self.auth_crud.create(db, user_dict)
 
         await db.commit()
         await db.refresh(user)
         return user
 
     async def login(self, db: AsyncSession, user_data: UserLogin, redis_client: RedisClient) -> TokenResponse:
-        user = await self.user_crud.get_by_email_with_role(db, user_data.email)
-        
-        if not user or not HashService.verify_password(user_data.password, user.password_hash):
+        user = await self.auth_crud.get_by_email_with_role(db, user_data.email)
+
+        if not user or not HashService.verify_password(user_data.password, user.password):
             raise HTTPException(status_code=401, detail="Неверный email или пароль")
-        
+
         if not user.is_active:
             raise HTTPException(status_code=403, detail="Пользователь деактивирован")
-        
+
         if user.role.name != user_data.role:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Неверный email или пароль"
             )
-        
+
         await redis_client.delete_session(str(user.id))
 
         access_jti = str(uuid.uuid4())
@@ -115,7 +108,7 @@ class AuthService:
         except Exception:
             raise HTTPException(status_code=401, detail="Невалидный refresh токен")
 
-        user = await self.user_crud.get(db, int(user_id))
+        user = await self.auth_crud.get(db, int(user_id))
         if not user or not user.is_active:
             raise HTTPException(status_code=401, detail="Пользователь не найден или неактивен")
 
@@ -127,7 +120,7 @@ class AuthService:
         await redis_client.blacklist_access_jti(old_access_jti, setting.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
 
         new_access_jti = str(uuid.uuid4())
-        new_refresh_jti = str(uuid.uuid4())  # добавляем jti в refresh
+        new_refresh_jti = str(uuid.uuid4())
         new_access = JWTToken.create_access_token({"sub": str(user.id), "jti": new_access_jti})
         new_refresh = JWTToken.create_refresh_token({"sub": str(user.id), "jti": new_refresh_jti})
 

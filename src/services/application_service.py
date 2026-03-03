@@ -7,7 +7,6 @@ from src.cruds.applicant_cruds.applicant_crud import applicantcrud
 from src.cruds.company_cruds.company_crud import companycrud
 from src.redis.redis_client import RedisClient
 from src.schemas.application_schema import ApplicationCreate, ApplicationUpdate
-from src.models.model import Application
 
 class ApplicationService:
     def __init__(self, redis_client: RedisClient):

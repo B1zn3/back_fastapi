@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -6,7 +6,7 @@ from src.deps.db_deps import get_db, get_redis_service
 from src.deps.auth_deps import get_current_user
 from src.cruds.auth_crud import authcrud
 from src.cruds.role_crud import rolecrud
-from src.schemas.auth_schema import UserCreate, UserLogin, TokenResponse, RefreshTokenRequest
+from src.schemas.auth_schema import UserCreate, UserLogin, TokenResponse, RefreshTokenRequest, LogoutRequest
 from src.services.auth_service import AuthService
 from src.redis.redis_client import RedisClient
 from src.models.model import User
@@ -73,11 +73,11 @@ async def refresh(
 
 @auth_router.post("/logout")
 async def logout(
-    refresh_request: RefreshTokenRequest,
+    logout_request: LogoutRequest,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db),
     redis_client: RedisClient = Depends(get_redis_service),
-    current_user: User = Depends(get_current_user) 
+    current_user: User = Depends(get_current_user)
 ):
     access_token = credentials.credentials
     try:
@@ -89,5 +89,5 @@ async def logout(
         raise HTTPException(status_code=401, detail="Невалидный access токен")
 
     service = AuthService(authcrud, rolecrud)
-    await service.logout(access_jti, current_user.id, refresh_request.refresh_token, redis_client)
+    await service.logout(access_jti, current_user.id, logout_request.refresh_token, redis_client)
     return {"msg": "Успешный выход"}

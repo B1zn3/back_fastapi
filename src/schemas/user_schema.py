@@ -1,7 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 
-from src.schemas.profile_schema import ProfileResponse
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
@@ -16,7 +15,6 @@ class UserResponse(BaseModel):
     email: EmailStr
     role: str 
     is_active: bool
-    profile: ProfileResponse
 
     class Config:
         from_attributes = True

@@ -1,17 +1,16 @@
 from typing import Optional
-
 from pydantic import BaseModel, EmailStr, Field
 
 class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8)
-    role: str  = "applicant"
+    role: str = "applicant"
     company_name: Optional[str] = None
 
 class UserLogin(BaseModel):
     email: EmailStr
-    password: str
-    role: str  = "applicant"
+    password: str = Field(..., min_length=8)
+    role: str = "applicant"
 
 class TokenResponse(BaseModel):
     access_token: str

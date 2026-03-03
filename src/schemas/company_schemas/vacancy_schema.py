@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional, List
 from src.schemas.profession_schema import ProfessionResponse
@@ -11,28 +11,46 @@ class VacancyBase(BaseModel):
     description: Optional[str] = None
     salary_min: Optional[int] = None
     salary_max: Optional[int] = None
-    currency: Optional[str] = None
-    experience_required: Optional[str] = None
+    currency: int
+    experience_required: int
     is_active: bool = True
     profession_id: int
     employment_type_id: Optional[int] = None
     work_schedule_id: Optional[int] = None
 
-class VacancyCreate(VacancyBase):
+
+class VacancyCreate(BaseModel):
+    title: str
+    description: str
+    profession_id: int  # важно: profession_id, а не profession
+    city_id: int        # важно: city_id, а не city
+    employment_type_id: int  # важно: employment_type_id, а не employment_type
+    work_schedule_id: int    # важно: work_schedule_id, а не work_schedule
+    salary_min: int
+    salary_max: int
+    currency_id: int
+    experience_id: int
+
+class VacancyUpdate(VacancyCreate):
     pass
 
-class VacancyUpdate(VacancyBase):
-    pass
-
-class VacancyResponse(VacancyBase):
+class VacancyResponse(BaseModel):
     id: int
-    created_at: datetime
-    updated_at: Optional[datetime] = None
+    title: str
+    description: str
+    profession_id: int
+    city_id: int
+    employment_type_id: int
+    work_schedule_id: int
+    salary_min: int
+    salary_max: int
+    currency_id: int  # вместо currency: str
+    experience_id: int
+    status_id: int
     company_id: int
-    profession: Optional[ProfessionResponse] = None
-    employment_type: Optional[EmploymentTypeResponse] = None
-    work_schedule: Optional[WorkScheduleResponse] = None
-    skills: List[SkillResponse] = []
+    created_at: datetime
+    updated_at: datetime
+    
 
     class Config:
         from_attributes = True

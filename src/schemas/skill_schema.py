@@ -1,3 +1,5 @@
+from typing import List
+
 from pydantic import BaseModel
 
 class SkillBase(BaseModel):
@@ -11,3 +13,7 @@ class SkillResponse(SkillBase):
 
     class Config:
         from_attributes = True
+
+class SkillsBatchCreate(BaseModel):
+    skills: List[str]
+    

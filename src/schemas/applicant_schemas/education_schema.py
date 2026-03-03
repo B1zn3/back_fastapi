@@ -8,14 +8,13 @@ class EducationBase(BaseModel):
     end_date: Optional[date] = None
 
 class EducationCreate(EducationBase):
-    resume_id: int
+    pass
 
 class EducationUpdate(EducationBase):
     pass
 
 class EducationResponse(EducationBase):
     id: int
-    resume_id: int
-    institution_id: int
+
     class Config:
         from_attributes = True

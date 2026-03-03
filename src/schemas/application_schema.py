@@ -12,5 +12,8 @@ class ApplicationResponse(ApplicationBase):
     vacancy_id: int
     resume_id: int
 
+class ApplicationUpdate(BaseModel):
+    status: Optional[str]
+
     class Config:
         from_attributes = True
