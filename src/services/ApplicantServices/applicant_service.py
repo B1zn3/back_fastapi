@@ -86,7 +86,7 @@ class ApplicantService:
         try:
             resume_dict = data.model_dump()
             resume_dict["applicant_id"] = applicant_id
-            resume_dict["created_at"] = resume_dict["updated_at"] = datetime.now(timezone.utc)
+            resume_dict["created_at"] = resume_dict["updated_at"] = datetime.utcnow()
             resume = await self.resumecrud.create(db, resume_dict)
             await db.commit()
             await db.refresh(resume, ["profession", "skills", "work_experiences"])
@@ -110,7 +110,7 @@ class ApplicantService:
         try:
             for field, value in data.model_dump(exclude_unset=True).items():
                 setattr(resume, field, value)
-            resume.updated_at = datetime.now(timezone.utc)
+            resume.updated_at = datetime.utcnow()
             await db.commit()
             await db.refresh(resume, ["profession", "skills", "work_experiences"])
             return resume
@@ -211,11 +211,14 @@ class ApplicantService:
 
     # ---------- Образование ----------
     async def add_education(self, db: AsyncSession, applicant_id: int, data: EducationCreate) -> Education:
-        applicant = await self._get_applicant_or_raise(db, applicant_id)
+        applicant = await self._get_applicant_or_raise(db, applicant_id)  
         try:
-            institution = await self.educationalinstitutioncrud.get_or_create(db, data.institution_name)
-            edu_dict = data.model_dump(exclude={"institution_name"})
-            edu_dict["applicant_id"] = applicant_id
+            institution = await educationalinstitutioncrud.get(db, data.institution_id)
+            if not institution:
+                raise HTTPException(status_code=400, detail="Учебное заведение не найдено")
+
+            edu_dict = data.model_dump()
+            edu_dict["applicant_id"] = applicant.id 
             edu_dict["institution_id"] = institution.id
             edu = await self.educationcrud.create(db, edu_dict)
             await db.commit()
@@ -223,29 +226,57 @@ class ApplicantService:
             return edu
         except IntegrityError:
             await db.rollback()
-            raise HTTPException(status_code=400, detail="Invalid data")
+            raise HTTPException(status_code=400, detail="Некорректные данные")
+        except HTTPException:
+            await db.rollback()
+            raise
         except Exception as e:
             await db.rollback()
-            logger.error(f"Error: {e}")
-            raise HTTPException(status_code=500, detail="Internal error")
+            logger.error(f"Error in add_education: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Внутренняя ошибка")
+
+        except IntegrityError as e:
+            await db.rollback()
+            logger.error(f"❌ IntegrityError: {e}")
+            raise HTTPException(status_code=400, detail="Нарушение целостности данных (возможно, дубликат)")
+        except HTTPException:
+            await db.rollback()
+            raise
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"❌ Непредвиденная ошибка: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
 
     async def update_education(self, db: AsyncSession, edu_id: int, applicant_id: int, data: EducationUpdate) -> Education:
         edu = await self.educationcrud.get_with_institution(db, edu_id)
         if not edu or edu.applicant_id != applicant_id:
             raise EducationNotFoundError()
+
         try:
-            if data.institution_name:
-                institution = await self.educationalinstitutioncrud.get_or_create(db, data.institution_name)
+            # Если передан institution_id, обновляем учебное заведение
+            if data.institution_id is not None:
+                institution = await self.educationalinstitutioncrud.get(db, data.institution_id)
+                if not institution:
+                    raise HTTPException(status_code=400, detail="Учебное заведение не найдено")
                 edu.institution_id = institution.id
-            for field, value in data.model_dump(exclude={"institution_name"}, exclude_unset=True).items():
+
+            # Обновляем остальные поля (даты)
+            # Исключаем institution_id, так как уже обработали отдельно
+            update_data = data.model_dump(exclude={"institution_id"}, exclude_unset=True)
+            for field, value in update_data.items():
                 setattr(edu, field, value)
+
             await db.commit()
             await db.refresh(edu, ["institution"])
             return edu
+
+        except HTTPException:
+            await db.rollback()
+            raise
         except Exception as e:
             await db.rollback()
-            logger.error(f"Error: {e}")
-            raise HTTPException(status_code=500, detail="Internal error")
+            logger.error(f"Error in update_education: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Внутренняя ошибка")
 
     async def delete_education(self, db: AsyncSession, edu_id: int, applicant_id: int) -> None:
         edu = await self.educationcrud.get(db, edu_id)

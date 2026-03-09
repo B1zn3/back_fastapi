@@ -1,6 +1,7 @@
+from alembic.util import status
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from loguru import logger
 from src.deps.db_deps import get_db
 from src.deps.role_checker import require_role
 from src.deps.pagination import pagination_params
@@ -16,7 +17,7 @@ from src.schemas.applicant_schemas.education_schema import (
     EducationCreate, EducationUpdate, EducationResponse
 )
 from src.schemas.application_schema import ApplicationCreate, ApplicationResponse
-from src.models.model import User
+from src.models.model import Applicant, User
 from src.core.exceptions import BaseAppException
 
 applicant_router = APIRouter(prefix="/applicants", tags=["Соискатели"])
@@ -24,8 +25,12 @@ applicant_router = APIRouter(prefix="/applicants", tags=["Соискатели"]
 async def get_current_applicant(
     current_user: User = Depends(require_role("applicant")),
     db: AsyncSession = Depends(get_db)
-):
-    applicant = await applicant_service.get_profile(db, current_user.id)
+) -> Applicant:
+    logger.info(f"Getting applicant for user {current_user.id}")
+    applicant = await applicant_service.applicantcrud.get_by_user_id_with_details(db, current_user.id)
+    if not applicant:
+        logger.error(f"Applicant not found for user {current_user.id}")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Профиль соискателя не найден")
     return applicant
 
 # ---------- Профиль ----------
@@ -38,14 +43,11 @@ async def get_applicant_profile(
 @applicant_router.put("/me", response_model=ApplicantResponse)
 async def update_applicant_profile(
     update_data: ApplicantUpdate,
-    applicant = Depends(get_current_applicant),
+    current_user: User = Depends(require_role("applicant")),
     db: AsyncSession = Depends(get_db)
 ):
-    try:
-        updated = await applicant_service.update_profile(db, applicant.id, update_data)
-        return updated
-    except BaseAppException as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message)
+    updated = await applicant_service.update_profile(db, current_user.id, update_data)
+    return updated
 
 # ---------- Резюме ----------
 @applicant_router.post("/me/resumes", response_model=ResumeResponse, status_code=201)
@@ -180,11 +182,11 @@ async def delete_work_experience(
 @applicant_router.post("/me/education", response_model=EducationResponse)
 async def add_education(
     data: EducationCreate,
-    applicant = Depends(get_current_applicant),
+    current_user: User = Depends(require_role("applicant")),
     db: AsyncSession = Depends(get_db)
 ):
     try:
-        edu = await applicant_service.add_education(db, applicant.id, data)
+        edu = await applicant_service.add_education(db, current_user.id, data)
         return edu
     except BaseAppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)

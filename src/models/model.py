@@ -254,6 +254,10 @@ class Education(Base):
     applicant: Mapped["Applicant"] = relationship(back_populates="educations")
     institution: Mapped["EducationalInstitution"] = relationship(back_populates="educations")
 
+    @property
+    def institution_name(self) -> Optional[str]:
+        return self.institution.name if self.institution else None
+
 
 class Application(Base):
     __tablename__ = "applications"

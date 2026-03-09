@@ -7,9 +7,9 @@ from src.schemas.applicant_schemas.education_schema import EducationResponse
 
 class ApplicantBase(BaseModel):
     photo: Optional[str] = Field(None, example="https://storage.example.com/photos/user1.jpg")
-    phone: Optional[str] = Field(None, example="+79991234567", pattern=r'^\+?[0-9]{10,15}$')
+    phone: Optional[str] = Field(None, example="+375295608177", pattern=r'^(\+375|8)[0-9]{9}$')
     birth_date: Optional[date] = Field(None, example="1990-05-15")
-    gender: Optional[str] = Field(None, example="male", pattern=r'^(male|female)$')
+    gender: Optional[str] = Field(None, example="м")
     first_name: Optional[str] = Field(None, example="Иван", min_length=2, max_length=50)
     last_name: Optional[str] = Field(None, example="Петров", min_length=2, max_length=50)
     middle_name: Optional[str] = Field(None, example="Сергеевич", min_length=2, max_length=50)
@@ -31,7 +31,7 @@ class ApplicantResponse(ApplicantBase):
                 "photo": "https://storage.example.com/photos/user1.jpg",
                 "phone": "+79991234567",
                 "birth_date": "1990-05-15",
-                "gender": "male",
+                "gender": "м",
                 "first_name": "Иван",
                 "last_name": "Петров",
                 "middle_name": "Сергеевич",
