@@ -1,4 +1,3 @@
-import uuid
 import time
 from typing import Optional, Dict, List
 from src.redis.client import redis_client

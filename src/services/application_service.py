@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.cruds.application_crud import applicationcrud
 from src.cruds.company_cruds.vacancy_crud import vacancycrud
 from src.cruds.applicant_cruds.resume_crud import resumecrud
-from src.schemas.application_schema import ApplicationCreate, ApplicationUpdate
+from src.schemas.application_schema import ApplicationCreate
 from src.core.exceptions import (
     VacancyNotFoundError, ResumeNotFoundError, DuplicateApplicationError,
     AccessDeniedError, VacancyInactiveError, ApplicationNotFoundError
@@ -43,8 +43,8 @@ class ApplicationService:
         applicant_id: int,
         application_data: ApplicationCreate
     ):
-        vacancy = await self._get_vacancy_or_raise(db, application_data.vacancy_id, check_active=True)
-        resume = await self._get_resume_or_raise(db, application_data.resume_id, applicant_id)
+        await self._get_vacancy_or_raise(db, application_data.vacancy_id, check_active=True)
+        await self._get_resume_or_raise(db, application_data.resume_id, applicant_id)
 
         lock_key = f"application_lock:{application_data.vacancy_id}:{application_data.resume_id}"
         if not await lock_service.acquire_lock(lock_key):

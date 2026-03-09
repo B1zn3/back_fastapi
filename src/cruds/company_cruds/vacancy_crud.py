@@ -8,7 +8,7 @@ class VacancyCrud(BaseCrud):
         super().__init__(Vacancy)
 
     async def get_active(self, db: AsyncSession, vacancy_id: int) -> Vacancy | None:
-        stmt = select(Vacancy).where(Vacancy.id == vacancy_id, Vacancy.is_active == True)
+        stmt = select(Vacancy).where(Vacancy.id == vacancy_id, Vacancy.is_active)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 

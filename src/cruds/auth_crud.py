@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from src.cruds.base_crud import BaseCrud
-from src.models.model import User, Role
+from src.models.model import User
 
 class AuthCrud(BaseCrud):
     def __init__(self):

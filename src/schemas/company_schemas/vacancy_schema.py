@@ -1,10 +1,6 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional, List
-from src.schemas.profession_schema import ProfessionResponse
-from src.schemas.company_schemas.employment_type_schema import EmploymentTypeResponse
-from src.schemas.company_schemas.work_schedule_schema import WorkScheduleResponse
-from src.schemas.skill_schema import SkillResponse
+from typing import Optional
 
 class VacancyBase(BaseModel):
     title: str

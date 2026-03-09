@@ -1,5 +1,5 @@
 # src/services/company_service.py
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -257,7 +257,7 @@ class CompanyService:
     async def delete_vacancy(self, db: AsyncSession, vacancy_id: int, company_id: int):
         """Удаляет вакансию."""
         try:
-            vacancy = await self._get_vacancy_or_404(db, vacancy_id, company_id)
+            await self._get_vacancy_or_404(db, vacancy_id, company_id)
             await self.vacancycrud.delete(db, vacancy_id)
             await db.commit()
         except HTTPException:

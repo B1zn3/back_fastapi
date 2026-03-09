@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -120,7 +120,7 @@ class ApplicantService:
             raise HTTPException(status_code=500, detail="Internal error")
 
     async def delete_resume(self, db: AsyncSession, resume_id: int, applicant_id: int) -> None:
-        resume = await self._get_resume_or_raise(db, resume_id, applicant_id)
+        await self._get_resume_or_raise(db, resume_id, applicant_id)
         try:
             await self.resumecrud.delete(db, resume_id)
             await db.commit()
@@ -189,7 +189,7 @@ class ApplicantService:
             raise HTTPException(status_code=500, detail="Internal error")
 
     async def update_work_experience(self, db: AsyncSession, exp_id: int, resume_id: int, applicant_id: int, data: WorkExperienceUpdate) -> WorkExperience:
-        exp = await self._get_work_exp_or_raise(db, exp_id, resume_id, applicant_id)
+        await self._get_work_exp_or_raise(db, exp_id, resume_id, applicant_id)
         try:
             updated = await self.workexperiencecrud.update(db, data.model_dump(exclude_unset=True), exp_id)
             await db.commit()
@@ -200,7 +200,7 @@ class ApplicantService:
             raise HTTPException(status_code=500, detail="Internal error")
 
     async def delete_work_experience(self, db: AsyncSession, exp_id: int, resume_id: int, applicant_id: int) -> None:
-        exp = await self._get_work_exp_or_raise(db, exp_id, resume_id, applicant_id)
+        await self._get_work_exp_or_raise(db, exp_id, resume_id, applicant_id)
         try:
             await self.workexperiencecrud.delete(db, exp_id)
             await db.commit()

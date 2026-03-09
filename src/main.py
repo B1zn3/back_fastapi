@@ -4,7 +4,6 @@ from contextlib import asynccontextmanager
 from src.api.v1.router import api_router
 from src.redis.client import redis_client
 from src.redis.auth import session_manager
-from src.core.exceptions import app_exception_handler, BaseAppException
 from src.utils.logger import logger
 from src.models.seed import seed_all
 

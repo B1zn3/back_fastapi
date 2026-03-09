@@ -1,5 +1,4 @@
 from passlib.hash import argon2
-from typing import Optional
 
 class HashService:
     ARGON2_MEMORY_COST = 65536  

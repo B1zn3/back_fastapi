@@ -130,8 +130,8 @@ class AuthService:
             await session_manager.delete_session(user_id, session_id)
             raise TokenRevokedError("Обнаружена подозрительная активность. Выполните вход заново.")
 
-        new_access_jti = str(uuid.uuid4())
         new_access = JWTToken.create_access_token({"sub": user_id}, session_id)
+        new_access_jti = JWTToken.get_jti(new_access)
         new_refresh = JWTToken.create_refresh_token({"sub": user_id}, session_id)
 
         success = await session_manager.rotate_session(
