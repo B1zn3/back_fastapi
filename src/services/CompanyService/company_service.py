@@ -136,7 +136,7 @@ class CompanyService:
             await db.commit()
             
             # ВАЖНО: возвращаем с загруженными связями
-            return await self.vacancycrud.get_with_details(db, vacancy.id)
+            return await self.vacancycrud.get(db, vacancy.id)
             
         except IntegrityError as e:
             await db.rollback()
