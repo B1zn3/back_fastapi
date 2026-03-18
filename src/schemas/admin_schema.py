@@ -57,3 +57,9 @@ class VacancyPublicDetail(VacancyPublicListItem):
     currency: str
     experience: str
     skills: list[str] = []
+    company_description: Optional[str] = None
+    company_website: Optional[str] = None
+    company_logo: Optional[str] = None
+    company_founded_year: Optional[int] = None
+    company_employee_count: Optional[int] = None
+

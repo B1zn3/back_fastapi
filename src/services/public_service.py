@@ -35,6 +35,9 @@ class PublicService:
 
         result = await db.execute(select(model).order_by(model.id).offset(skip).limit(limit))
         return result.scalars().all()
+    
+    async def list_catalog_items(self, db: AsyncSession, catalog_name: str, skip: int, limit: int):
+        return await self.get_catalog_items(db, catalog_name, skip, limit)
 
     async def get_vacancies(
         self,
@@ -117,6 +120,11 @@ class PublicService:
             "currency": vacancy.currency.name,
             "experience": vacancy.experience.name,
             "skills": [s.name for s in vacancy.skills],
+                        "company_description": vacancy.company.description,
+            "company_website": vacancy.company.website,
+            "company_logo": vacancy.company.logo,
+            "company_founded_year": vacancy.company.founded_year,
+            "company_employee_count": vacancy.company.employee_count,
         }
 
 
