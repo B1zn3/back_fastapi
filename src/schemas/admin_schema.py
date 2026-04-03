@@ -42,26 +42,30 @@ class VacancyPublicListItem(BaseModel):
     id: int
     title: str
     description: str
-    salary_min: int
-    salary_max: int
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
     created_at: datetime
-    company_name: str
-    city_name: str
-    profession_name: str
+    company_name: Optional[str] = None
+    city_name: Optional[str] = None
+    profession_name: Optional[str] = None
 
 
 class VacancyPublicDetail(VacancyPublicListItem):
-    updated_at: datetime
-    employment_type: str
-    work_schedule: str
-    currency: str
-    experience: str
-    skills: list[str] = []
+    updated_at: Optional[datetime] = None
+    employment_type: Optional[str] = None
+    work_schedule: Optional[str] = None
+    currency: Optional[str] = None
+    experience: Optional[str] = None
+    skills: list[str] = Field(default_factory=list)
+
+    company_type_name: Optional[str] = None
     company_description: Optional[str] = None
     company_website: Optional[str] = None
     company_logo: Optional[str] = None
     company_founded_year: Optional[int] = None
     company_employee_count: Optional[int] = None
+    company_cities: list[str] = Field(default_factory=list)
+
 
 class CompanyPublicListItem(BaseModel):
     id: int
@@ -72,37 +76,15 @@ class CompanyPublicListItem(BaseModel):
     founded_year: Optional[int] = None
     employee_count: Optional[int] = None
     vacancies_count: int = 0
-    city_names: list[str] = []
+    city_names: list[str] = Field(default_factory=list)
+    first_letter: str
+    company_type_name: Optional[str] = None
 
-class ProfessionPublicListItem(BaseModel):
-    id: int
-    name: str
 
 class CompanyPublicDetail(CompanyPublicListItem):
     pass
 
-class VacancyPublicDetail(BaseModel):
+
+class ProfessionPublicListItem(BaseModel):
     id: int
-    title: str
-    description: str
-    salary_min: Optional[int] = None
-    salary_max: Optional[int] = None
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-
-    company_name: Optional[str] = None
-    city_name: Optional[str] = None
-    profession_name: Optional[str] = None
-    employment_type: Optional[str] = None
-    work_schedule: Optional[str] = None
-    currency: Optional[str] = None
-    experience: Optional[str] = None
-
-    skills: list[str] = []
-
-    company_description: Optional[str] = None
-    company_website: Optional[str] = None
-    company_logo: Optional[str] = None
-    company_founded_year: Optional[int] = None
-    company_employee_count: Optional[int] = None
-    company_cities: list[str] = []
+    name: str

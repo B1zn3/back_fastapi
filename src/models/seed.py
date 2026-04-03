@@ -1,31 +1,32 @@
 import asyncio
 from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core.hash import HashService
 from src.db.database import async_session
 from src.models.model import (
-    Role,
     City,
-    Profession,
-    Skill,
-    WorkSchedule,
-    EmploymentType,
-    EducationalInstitution,
+    CompanyType,
     Currency,
+    EducationalInstitution,
+    EmploymentType,
     Experience,
+    Profession,
+    Role,
+    Skill,
     Status,
     User,
+    WorkSchedule,
 )
-from src.core.hash import HashService
 
-# === Роли ===
 ROLES = [
     {"name": "admin"},
     {"name": "company"},
     {"name": "applicant"},
 ]
 
-# === Города Беларуси (все областные и районные центры) ===
 CITIES = [
     "Минск", "Гомель", "Могилёв", "Витебск", "Гродно", "Брест",
     "Бобруйск", "Барановичи", "Борисов", "Пинск", "Орша", "Мозырь",
@@ -44,54 +45,38 @@ CITIES = [
     "Ганцевичи", "Дрогичин", "Жабинка", "Иваново", "Каменец", "Кобрин",
     "Ляховичи", "Малорита", "Пружаны", "Столин", "Брагин", "Буда-Кошелёво",
     "Ветка", "Ельск", "Корма", "Лельчицы", "Лоев", "Наровля", "Октябрьский",
-    "Петриков", "Хойники", "Чечерск"
+    "Петриков", "Хойники", "Чечерск",
 ]
 
-# === Профессии (расширенный список) ===
 PROFESSIONS = [
-    # IT и разработка
     "Программист", "Веб-разработчик", "Системный администратор", "DevOps-инженер",
     "Тестировщик", "Аналитик", "Data Scientist", "ML-инженер", "UI/UX-дизайнер",
     "Product Manager", "Project Manager", "Scrum-мастер", "Технический писатель",
-    # Инженерия и производство
     "Инженер", "Электрик", "Сварщик", "Строитель", "Архитектор", "Прораб",
     "Механик", "Технолог", "Конструктор", "Геодезист",
-    # Медицина и образование
     "Врач", "Медсестра", "Фармацевт", "Учитель", "Преподаватель", "Воспитатель",
     "Педагог", "Психолог", "Логопед",
-    # Торговля и услуги
     "Продавец", "Кассир", "Мерчендайзер", "Супервайзер", "Администратор",
     "Официант", "Повар", "Кондитер", "Пекарь", "Бармен", "Бариста",
     "Парикмахер", "Косметолог", "Маникюрша", "Фитнес-тренер",
-    # Транспорт и логистика
     "Водитель", "Машинист", "Курьер", "Логист", "Кладовщик", "Грузчик",
     "Экспедитор", "Дальнобойщик", "Таксист",
-    # Финансы и бухгалтерия
     "Бухгалтер", "Экономист", "Финансист", "Аудитор", "Налоговый консультант",
-    # Юриспруденция
     "Юрист", "Адвокат", "Нотариус", "Юрисконсульт",
-    # Маркетинг и реклама
     "Маркетолог", "SMM-менеджер", "Таргетолог", "Копирайтер", "PR-менеджер",
     "SEO-специалист", "Аналитик рекламы",
-    # Управление и офис
     "Менеджер по продажам", "Менеджер по работе с клиентами", "Офис-менеджер",
     "Секретарь", "Делопроизводитель", "HR-менеджер", "Рекрутер",
-    # Рабочие специальности
     "Слесарь", "Токарь", "Фрезеровщик", "Столяр", "Плотник", "Маляр",
     "Штукатур", "Каменщик", "Бетонщик", "Кровельщик", "Сантехник",
-    # Сельское хозяйство
     "Агроном", "Ветеринар", "Зоотехник", "Тракторист", "Комбайнёр",
     "Доярка", "Птицевод",
-    # Искусство и развлечения
     "Актёр", "Музыкант", "Художник", "Дизайнер", "Фотограф", "Видеооператор",
     "Режиссёр", "Сценарист", "Аниматор",
-    # Спорт
-    "Спортсмен", "Тренер", "Инструктор"
+    "Спортсмен", "Тренер", "Инструктор",
 ]
 
-# === Навыки (расширенный список) ===
 SKILLS = [
-    # Технические
     "Python", "SQL", "JavaScript", "HTML", "CSS", "React", "Vue.js", "Node.js",
     "Django", "Flask", "FastAPI", "Java", "C#", "C++", "PHP", "Ruby", "Go",
     "Rust", "Kotlin", "Swift", "1С", "Photoshop", "Illustrator", "Figma",
@@ -99,26 +84,22 @@ SKILLS = [
     "Linux", "Windows Server", "Docker", "Kubernetes", "Git", "CI/CD",
     "PostgreSQL", "MySQL", "MongoDB", "Redis", "Elasticsearch", "Kafka",
     "Hadoop", "Spark", "Tableau", "Power BI", "SAP", "CRM", "ERP",
-    # Языковые
     "Английский язык", "Немецкий язык", "Французский язык", "Польский язык",
     "Китайский язык", "Испанский язык", "Итальянский язык",
-    # Личностные
     "Коммуникабельность", "Ответственность", "Работа в команде", "Лидерство",
     "Креативность", "Стрессоустойчивость", "Обучаемость", "Тайм-менеджмент",
     "Организаторские способности", "Переговорные навыки", "Презентационные навыки",
     "Навыки продаж", "Ведение переговоров", "Управление проектами",
     "Аналитическое мышление", "Критическое мышление", "Внимание к деталям",
-    # Специализированные
     "Сметное дело", "Кадровое делопроизводство", "Бухгалтерский учёт",
     "Налоговый учёт", "Международные стандарты финансовой отчётности",
     "Управление персоналом", "Проведение тренингов", "Техника продаж",
     "Работа с возражениями", "Холодные звонки", "В2B-продажи", "В2C-продажи",
     "Медицинские знания", "Педагогические навыки", "Вождение автомобиля",
     "Права категории B", "Права категории C", "Права категории D", "Права категории E",
-    "Работа с оргтехникой", "1С:Предприятие", "Гарант", "КонсультантПлюс"
+    "Работа с оргтехникой", "1С:Предприятие", "Гарант", "КонсультантПлюс",
 ]
 
-# === Графики работы ===
 WORK_SCHEDULES = [
     "Полный день",
     "Сменный график",
@@ -129,7 +110,6 @@ WORK_SCHEDULES = [
     "Свободный график",
 ]
 
-# === Типы занятости ===
 EMPLOYMENT_TYPES = [
     "Полная занятость",
     "Частичная занятость",
@@ -140,7 +120,17 @@ EMPLOYMENT_TYPES = [
     "Сезонная работа",
 ]
 
-# === Учебные заведения Беларуси (расширенный список) ===
+COMPANY_TYPES = [
+    "ООО",
+    "ЗАО",
+    "ОАО",
+    "АО",
+    "ИП",
+    "ЧУП",
+    "УП",
+    "ОДО",
+]
+
 EDUCATIONAL_INSTITUTIONS = [
     "Белорусский государственный университет (БГУ)",
     "Белорусский национальный технический университет (БНТУ)",
@@ -171,7 +161,6 @@ EDUCATIONAL_INSTITUTIONS = [
     "Международный университет «МИТСО»",
 ]
 
-# === Валюты (контекст РБ) ===
 CURRENCIES = [
     "BYN",
     "RUB",
@@ -179,7 +168,6 @@ CURRENCIES = [
     "EUR",
 ]
 
-# === Опыт работы ===
 EXPERIENCES = [
     "Без опыта",
     "Менее 1 года",
@@ -188,103 +176,113 @@ EXPERIENCES = [
     "Более 6 лет",
 ]
 
-# === Статусы вакансий ===
 STATUSES = [
     "Активна",
     "В архиве",
     "Приостановлена",
 ]
 
-# === Вспомогательные функции ===
+
 async def seed_roles(db: AsyncSession) -> None:
     for role_data in ROLES:
         existing = await db.execute(select(Role).where(Role.name == role_data["name"]))
         if not existing.scalar_one_or_none():
-            role = Role(**role_data)
-            db.add(role)
+            db.add(Role(**role_data))
     await db.flush()
     print("✅ Роли обработаны.")
+
 
 async def seed_cities(db: AsyncSession) -> None:
     for city_name in CITIES:
         existing = await db.execute(select(City).where(City.name == city_name))
         if not existing.scalar_one_or_none():
-            city = City(name=city_name)
-            db.add(city)
+            db.add(City(name=city_name))
     await db.flush()
     print("✅ Города обработаны.")
+
 
 async def seed_professions(db: AsyncSession) -> None:
     for prof_name in PROFESSIONS:
         existing = await db.execute(select(Profession).where(Profession.name == prof_name))
         if not existing.scalar_one_or_none():
-            profession = Profession(name=prof_name)
-            db.add(profession)
+            db.add(Profession(name=prof_name))
     await db.flush()
     print("✅ Профессии обработаны.")
+
 
 async def seed_skills(db: AsyncSession) -> None:
     for skill_name in SKILLS:
         existing = await db.execute(select(Skill).where(Skill.name == skill_name))
         if not existing.scalar_one_or_none():
-            skill = Skill(name=skill_name)
-            db.add(skill)
+            db.add(Skill(name=skill_name))
     await db.flush()
     print("✅ Навыки обработаны.")
+
 
 async def seed_work_schedules(db: AsyncSession) -> None:
     for schedule_name in WORK_SCHEDULES:
         existing = await db.execute(select(WorkSchedule).where(WorkSchedule.name == schedule_name))
         if not existing.scalar_one_or_none():
-            schedule = WorkSchedule(name=schedule_name)
-            db.add(schedule)
+            db.add(WorkSchedule(name=schedule_name))
     await db.flush()
     print("✅ Графики работы обработаны.")
+
 
 async def seed_employment_types(db: AsyncSession) -> None:
     for et_name in EMPLOYMENT_TYPES:
         existing = await db.execute(select(EmploymentType).where(EmploymentType.name == et_name))
         if not existing.scalar_one_or_none():
-            emp_type = EmploymentType(name=et_name)
-            db.add(emp_type)
+            db.add(EmploymentType(name=et_name))
     await db.flush()
     print("✅ Типы занятости обработаны.")
 
+
+async def seed_company_types(db: AsyncSession) -> None:
+    for ct_name in COMPANY_TYPES:
+        existing = await db.execute(select(CompanyType).where(CompanyType.name == ct_name))
+        if not existing.scalar_one_or_none():
+            db.add(CompanyType(name=ct_name))
+    await db.flush()
+    print("✅ Типы компаний обработаны.")
+
+
 async def seed_educational_institutions(db: AsyncSession) -> None:
     for inst_name in EDUCATIONAL_INSTITUTIONS:
-        existing = await db.execute(select(EducationalInstitution).where(EducationalInstitution.name == inst_name))
+        existing = await db.execute(
+            select(EducationalInstitution).where(EducationalInstitution.name == inst_name)
+        )
         if not existing.scalar_one_or_none():
-            institution = EducationalInstitution(name=inst_name)
-            db.add(institution)
+            db.add(EducationalInstitution(name=inst_name))
     await db.flush()
     print("✅ Учреждения образования обработаны.")
+
 
 async def seed_currencies(db: AsyncSession) -> None:
     for currency_name in CURRENCIES:
         existing = await db.execute(select(Currency).where(Currency.name == currency_name))
         if not existing.scalar_one_or_none():
-            currency = Currency(name=currency_name)
-            db.add(currency)
+            db.add(Currency(name=currency_name))
     await db.flush()
     print("✅ Валюты обработаны.")
+
 
 async def seed_experiences(db: AsyncSession) -> None:
     for exp_name in EXPERIENCES:
         existing = await db.execute(select(Experience).where(Experience.name == exp_name))
         if not existing.scalar_one_or_none():
-            exp = Experience(name=exp_name)
-            db.add(exp)
+            db.add(Experience(name=exp_name))
     await db.flush()
     print("✅ Опыт работы обработан.")
+
 
 async def seed_statuses(db: AsyncSession) -> None:
     for status_name in STATUSES:
         existing = await db.execute(select(Status).where(Status.name == status_name))
         if not existing.scalar_one_or_none():
-            status = Status(name=status_name)
-            db.add(status)
+            db.add(Status(name=status_name))
     await db.flush()
     print("✅ Статусы обработаны.")
+
 
 async def seed_admin_user(db: AsyncSession) -> None:
     result = await db.execute(select(Role).where(Role.name == "admin"))
@@ -301,7 +299,7 @@ async def seed_admin_user(db: AsyncSession) -> None:
     hashed_password = HashService.get_password_hash("admin123")
     admin_user = User(
         email="admin@example.com",
-        password=hashed_password,  # В модели поле называется password, не password_hash
+        password=hashed_password,
         role_id=admin_role.id,
         is_active=True,
         created_at=datetime.utcnow(),
@@ -313,6 +311,7 @@ async def seed_admin_user(db: AsyncSession) -> None:
     await db.flush()
     print("✅ Создан пользователь-администратор (admin@example.com / admin123).")
 
+
 async def seed_all():
     async with async_session() as db:
         await seed_roles(db)
@@ -321,6 +320,7 @@ async def seed_all():
         await seed_skills(db)
         await seed_work_schedules(db)
         await seed_employment_types(db)
+        await seed_company_types(db)
         await seed_educational_institutions(db)
         await seed_currencies(db)
         await seed_experiences(db)
@@ -329,6 +329,7 @@ async def seed_all():
 
         await db.commit()
         print("🎉 Все справочники и администратор успешно созданы.")
+
 
 if __name__ == "__main__":
     asyncio.run(seed_all())

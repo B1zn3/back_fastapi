@@ -9330,3 +9330,141 @@ redis.exceptions.ConnectionError: Error 10054 while writing to socket. Удал�
 2026-03-26T10:12:16.995419+0300 | INFO | HTTP GET /api/v1/public/vacancies origin=http://localhost:3000
 2026-03-26T10:12:17.012691+0300 | INFO | HTTP GET /api/v1/public/vacancies -> 200
 2026-03-26T10:12:17.019149+0300 | INFO | HTTP GET /api/v1/public/vacancies/35 -> 200
+2026-04-03T18:10:12.833414+0300 | INFO | Started server process [728]
+2026-04-03T18:10:12.833970+0300 | INFO | Started server process [728]
+2026-04-03T18:10:12.834190+0300 | INFO | Waiting for application startup.
+2026-04-03T18:10:12.834435+0300 | INFO | Waiting for application startup.
+2026-04-03T18:10:12.835073+0300 | INFO | Redis connected
+2026-04-03T18:10:13.303280+0300 | INFO | Application started
+2026-04-03T18:10:13.303692+0300 | INFO | Application startup complete.
+2026-04-03T18:10:13.303889+0300 | INFO | Application startup complete.
+2026-04-03T18:10:14.200981+0300 | INFO | HTTP GET / origin=-
+2026-04-03T18:10:14.203239+0300 | INFO | HTTP GET / -> 404
+2026-04-03T18:10:14.377611+0300 | INFO | HTTP GET /favicon.ico origin=-
+2026-04-03T18:10:14.378421+0300 | INFO | HTTP GET /favicon.ico -> 404
+2026-04-03T18:10:15.617676+0300 | INFO | Shutting down
+2026-04-03T18:10:15.618127+0300 | INFO | Shutting down
+2026-04-03T18:10:15.725860+0300 | INFO | Waiting for application shutdown.
+2026-04-03T18:10:15.726264+0300 | INFO | Waiting for application shutdown.
+2026-04-03T18:10:15.726821+0300 | INFO | Redis closed
+2026-04-03T18:10:15.727080+0300 | INFO | Application stopped
+2026-04-03T18:10:15.727362+0300 | INFO | Application shutdown complete.
+2026-04-03T18:10:15.727564+0300 | INFO | Application shutdown complete.
+2026-04-03T18:10:15.727837+0300 | INFO | Finished server process [728]
+2026-04-03T18:10:15.728007+0300 | INFO | Finished server process [728]
+2026-04-03T18:10:25.107148+0300 | INFO | Started server process [20664]
+2026-04-03T18:10:25.107790+0300 | INFO | Started server process [20664]
+2026-04-03T18:10:25.108225+0300 | INFO | Waiting for application startup.
+2026-04-03T18:10:25.108415+0300 | INFO | Waiting for application startup.
+2026-04-03T18:10:25.109093+0300 | INFO | Redis connected
+2026-04-03T18:10:25.498533+0300 | INFO | Application started
+2026-04-03T18:10:25.499002+0300 | INFO | Application startup complete.
+2026-04-03T18:10:25.499176+0300 | INFO | Application startup complete.
+2026-04-03T18:10:42.068779+0300 | INFO | HTTP GET /docs origin=-
+2026-04-03T18:10:42.069972+0300 | INFO | HTTP GET /docs -> 200
+2026-04-03T18:10:44.144626+0300 | INFO | HTTP GET /openapi.json origin=-
+2026-04-03T18:10:44.243983+0300 | INFO | HTTP GET /openapi.json -> 200
+2026-04-03T18:11:19.538561+0300 | INFO | HTTP GET /api/v1/public/companies origin=-
+2026-04-03T18:11:19.573698+0300 | INFO | HTTP GET /api/v1/public/companies -> 200
+2026-04-03T18:12:01.488426+0300 | INFO | HTTP GET /api/v1/public/companies origin=-
+2026-04-03T18:12:01.500195+0300 | INFO | HTTP GET /api/v1/public/companies -> 200
+2026-04-03T18:17:05.795936+0300 | INFO | HTTP OPTIONS /api/v1/auth/refresh origin=http://localhost:3000
+2026-04-03T18:17:05.796650+0300 | INFO | HTTP OPTIONS /api/v1/auth/refresh -> 200
+2026-04-03T18:17:05.798146+0300 | INFO | HTTP OPTIONS /api/v1/auth/refresh origin=http://localhost:3000
+2026-04-03T18:17:05.798633+0300 | INFO | HTTP OPTIONS /api/v1/auth/refresh -> 200
+2026-04-03T18:17:05.800910+0300 | INFO | HTTP POST /api/v1/auth/refresh origin=http://localhost:3000
+2026-04-03T18:17:05.801460+0300 | INFO | HTTP GET /api/v1/public/vacancies origin=http://localhost:3000
+2026-04-03T18:17:05.806760+0300 | INFO | HTTP GET /api/v1/public/professions origin=http://localhost:3000
+2026-04-03T18:17:05.807331+0300 | INFO | HTTP GET /api/v1/public/companies origin=http://localhost:3000
+2026-04-03T18:17:05.813910+0300 | INFO | HTTP POST /api/v1/auth/refresh origin=http://localhost:3000
+2026-04-03T18:17:05.820580+0300 | INFO | 🔄 ROTATE: key=session:32:e2f02d6c-6155-4a2f-a59c-5c714c01061e, old_refresh=eyJhbGciOiJIUzI1NiIsInR5cCI6Ik..., new_access_jti=55ddc12d-d16b-401f-b607-b4f6b372540a
+2026-04-03T18:17:05.831774+0300 | INFO | 🔄 ROTATE result: status=0, message=session not found, stored_refresh=None...
+2026-04-03T18:17:05.832612+0300 | WARNING | ❌ ROTATE failed: session not found, stored_refresh=None
+2026-04-03T18:17:05.917273+0300 | INFO | HTTP POST /api/v1/auth/refresh -> 401
+2026-04-03T18:17:05.921020+0300 | INFO | 🔄 ROTATE: key=session:32:e2f02d6c-6155-4a2f-a59c-5c714c01061e, old_refresh=eyJhbGciOiJIUzI1NiIsInR5cCI6Ik..., new_access_jti=5f2a9741-5bf8-4111-86c7-2df73208ed78
+2026-04-03T18:17:05.928533+0300 | INFO | 🔄 ROTATE result: status=0, message=session not found, stored_refresh=None...
+2026-04-03T18:17:05.928941+0300 | WARNING | ❌ ROTATE failed: session not found, stored_refresh=None
+2026-04-03T18:17:05.931229+0300 | INFO | HTTP GET /api/v1/public/professions -> 200
+2026-04-03T18:17:05.932337+0300 | INFO | HTTP POST /api/v1/auth/refresh -> 401
+2026-04-03T18:17:05.934660+0300 | INFO | HTTP GET /api/v1/public/vacancies -> 200
+2026-04-03T18:17:05.936528+0300 | INFO | HTTP GET /api/v1/public/companies -> 200
+2026-04-03T18:17:15.704229+0300 | INFO | HTTP GET /api/v1/public/companies origin=http://localhost:3000
+2026-04-03T18:17:15.704722+0300 | INFO | HTTP GET /api/v1/public/catalogs/cities origin=http://localhost:3000
+2026-04-03T18:17:15.814856+0300 | INFO | HTTP GET /api/v1/public/catalogs/cities -> 200
+2026-04-03T18:17:15.823473+0300 | INFO | HTTP GET /api/v1/public/companies -> 200
+2026-04-03T18:17:24.860697+0300 | INFO | HTTP GET /api/v1/public/companies/3 origin=http://localhost:3000
+2026-04-03T18:17:24.863390+0300 | INFO | HTTP GET /api/v1/public/vacancies origin=http://localhost:3000
+2026-04-03T18:17:24.880900+0300 | INFO | HTTP GET /api/v1/public/vacancies -> 200
+2026-04-03T18:17:24.882493+0300 | INFO | HTTP GET /api/v1/public/companies/3 -> 200
+2026-04-03T18:18:20.858106+0300 | INFO | HTTP GET /api/v1/public/catalogs/cities origin=http://localhost:3000
+2026-04-03T18:18:20.860047+0300 | INFO | HTTP GET /api/v1/public/companies origin=http://localhost:3000
+2026-04-03T18:18:20.866782+0300 | INFO | HTTP GET /api/v1/public/catalogs/cities -> 200
+2026-04-03T18:18:20.874614+0300 | INFO | HTTP GET /api/v1/public/companies -> 200
+2026-04-03T18:18:21.598125+0300 | INFO | HTTP GET /api/v1/public/companies/3 origin=http://localhost:3000
+2026-04-03T18:18:21.599980+0300 | INFO | HTTP GET /api/v1/public/vacancies origin=http://localhost:3000
+2026-04-03T18:18:21.609122+0300 | INFO | HTTP GET /api/v1/public/companies/3 -> 200
+2026-04-03T18:18:21.611635+0300 | INFO | HTTP GET /api/v1/public/vacancies -> 200
+2026-04-03T18:18:35.985874+0300 | INFO | HTTP GET /api/v1/public/companies/3 origin=http://localhost:3000
+2026-04-03T18:18:35.987688+0300 | INFO | HTTP GET /api/v1/public/vacancies origin=http://localhost:3000
+2026-04-03T18:18:35.994280+0300 | INFO | HTTP GET /api/v1/public/companies/3 -> 200
+2026-04-03T18:18:35.995159+0300 | INFO | HTTP GET /api/v1/public/vacancies -> 200
+2026-04-03T18:18:36.976729+0300 | INFO | HTTP GET /api/v1/public/companies/3 origin=http://localhost:3000
+2026-04-03T18:18:36.981337+0300 | INFO | HTTP GET /api/v1/public/vacancies origin=http://localhost:3000
+2026-04-03T18:18:36.998264+0300 | INFO | HTTP GET /api/v1/public/vacancies -> 200
+2026-04-03T18:18:37.005520+0300 | INFO | HTTP GET /api/v1/public/companies/3 -> 200
+2026-04-03T18:19:22.036355+0300 | INFO | HTTP GET /api/v1/public/companies/3 origin=http://localhost:3000
+2026-04-03T18:19:22.039798+0300 | INFO | HTTP GET /api/v1/public/vacancies origin=http://localhost:3000
+2026-04-03T18:19:22.052739+0300 | INFO | HTTP GET /api/v1/public/vacancies -> 200
+2026-04-03T18:19:22.055327+0300 | INFO | HTTP GET /api/v1/public/companies/3 -> 200
+2026-04-03T18:19:58.901944+0300 | INFO | HTTP GET /api/v1/public/catalogs/cities origin=http://localhost:3000
+2026-04-03T18:19:58.905335+0300 | INFO | HTTP GET /api/v1/public/companies origin=http://localhost:3000
+2026-04-03T18:19:58.913283+0300 | INFO | HTTP GET /api/v1/public/catalogs/cities -> 200
+2026-04-03T18:19:58.922993+0300 | INFO | HTTP GET /api/v1/public/companies -> 200
+2026-04-03T18:19:59.746602+0300 | INFO | HTTP GET /api/v1/public/companies/3 origin=http://localhost:3000
+2026-04-03T18:19:59.748787+0300 | INFO | HTTP GET /api/v1/public/vacancies origin=http://localhost:3000
+2026-04-03T18:19:59.756418+0300 | INFO | HTTP GET /api/v1/public/companies/3 -> 200
+2026-04-03T18:19:59.758678+0300 | INFO | HTTP GET /api/v1/public/vacancies -> 200
+2026-04-03T18:20:03.374281+0300 | INFO | HTTP GET /api/v1/public/catalogs/cities origin=http://localhost:3000
+2026-04-03T18:20:03.375853+0300 | INFO | HTTP GET /api/v1/public/companies origin=http://localhost:3000
+2026-04-03T18:20:03.382877+0300 | INFO | HTTP GET /api/v1/public/catalogs/cities -> 200
+2026-04-03T18:20:03.388664+0300 | INFO | HTTP GET /api/v1/public/companies -> 200
+2026-04-03T18:20:06.771741+0300 | INFO | HTTP GET /api/v1/public/catalogs/cities origin=http://localhost:3000
+2026-04-03T18:20:06.774245+0300 | INFO | HTTP GET /api/v1/public/companies origin=http://localhost:3000
+2026-04-03T18:20:06.783686+0300 | INFO | HTTP GET /api/v1/public/catalogs/cities -> 200
+2026-04-03T18:20:06.791566+0300 | INFO | HTTP GET /api/v1/public/companies -> 200
+2026-04-03T18:20:19.232312+0300 | INFO | HTTP GET /api/v1/public/catalogs/cities origin=http://localhost:3000
+2026-04-03T18:20:19.235470+0300 | INFO | HTTP GET /api/v1/public/companies origin=http://localhost:3000
+2026-04-03T18:20:19.249102+0300 | INFO | HTTP GET /api/v1/public/catalogs/cities -> 200
+2026-04-03T18:20:19.259557+0300 | INFO | HTTP GET /api/v1/public/companies -> 200
+2026-04-03T18:21:33.886462+0300 | INFO | HTTP GET /api/v1/public/catalogs/cities origin=http://localhost:3000
+2026-04-03T18:21:33.888603+0300 | INFO | HTTP GET /api/v1/public/companies origin=http://localhost:3000
+2026-04-03T18:21:33.899019+0300 | INFO | HTTP GET /api/v1/public/catalogs/cities -> 200
+2026-04-03T18:21:33.905081+0300 | INFO | HTTP GET /api/v1/public/companies -> 200
+2026-04-03T18:22:36.316160+0300 | INFO | Shutting down
+2026-04-03T18:22:36.316717+0300 | INFO | Shutting down
+2026-04-03T18:22:36.425194+0300 | INFO | Waiting for application shutdown.
+2026-04-03T18:22:36.425595+0300 | INFO | Waiting for application shutdown.
+2026-04-03T18:22:36.426348+0300 | INFO | Redis closed
+2026-04-03T18:22:36.426614+0300 | INFO | Application stopped
+2026-04-03T18:22:36.426946+0300 | INFO | Application shutdown complete.
+2026-04-03T18:22:36.427190+0300 | INFO | Application shutdown complete.
+2026-04-03T18:22:36.427505+0300 | INFO | Finished server process [20664]
+2026-04-03T18:22:36.427686+0300 | INFO | Finished server process [20664]
+2026-04-03T18:22:37.977849+0300 | INFO | Started server process [13052]
+2026-04-03T18:22:37.978411+0300 | INFO | Started server process [13052]
+2026-04-03T18:22:37.978699+0300 | INFO | Waiting for application startup.
+2026-04-03T18:22:37.978934+0300 | INFO | Waiting for application startup.
+2026-04-03T18:22:37.980082+0300 | INFO | Redis connected
+2026-04-03T18:22:38.462994+0300 | INFO | Application started
+2026-04-03T18:22:38.463320+0300 | INFO | Application startup complete.
+2026-04-03T18:22:38.463528+0300 | INFO | Application startup complete.
+2026-04-03T18:22:44.861983+0300 | INFO | Shutting down
+2026-04-03T18:22:44.862347+0300 | INFO | Shutting down
+2026-04-03T18:22:44.970245+0300 | INFO | Waiting for application shutdown.
+2026-04-03T18:22:44.970803+0300 | INFO | Waiting for application shutdown.
+2026-04-03T18:22:44.971413+0300 | INFO | Redis closed
+2026-04-03T18:22:44.971743+0300 | INFO | Application stopped
+2026-04-03T18:22:44.972179+0300 | INFO | Application shutdown complete.
+2026-04-03T18:22:44.972529+0300 | INFO | Application shutdown complete.
+2026-04-03T18:22:44.972865+0300 | INFO | Finished server process [13052]
+2026-04-03T18:22:44.973163+0300 | INFO | Finished server process [13052]

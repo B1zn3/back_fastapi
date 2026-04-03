@@ -1,12 +1,13 @@
 from datetime import datetime
-from typing import Optional, List
+from typing import List, Optional
 
-from sqlalchemy import String, Text, DateTime, Date, Boolean, Integer, ForeignKey, Table, Column
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Table, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
     pass
+
 
 company_cities = Table(
     "company_cities",
@@ -40,13 +41,10 @@ class City(Base):
     vacancies: Mapped[List["Vacancy"]] = relationship(back_populates="city")
     companies: Mapped[List["Company"]] = relationship(
         secondary=company_cities,
-        back_populates="cities"
+        back_populates="cities",
     )
-'''"Полная занятость",
-    "Частичная занятость",
-    "Стажировка",
-    "Проектная работа",
-    "Волонтерство"'''
+
+
 class EmploymentType(Base):
     __tablename__ = "employment_types"
 
@@ -55,11 +53,7 @@ class EmploymentType(Base):
 
     vacancies: Mapped[List["Vacancy"]] = relationship(back_populates="employment_type")
 
-''' "Полный день",
-    "Сменный график",
-    "Гибкий график",
-    "Удаленная работа",
-    "Вахтовый метод"'''
+
 class WorkSchedule(Base):
     __tablename__ = "work_schedules"
 
@@ -76,10 +70,12 @@ class Skill(Base):
     name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
 
     vacancies: Mapped[List["Vacancy"]] = relationship(
-        secondary=vacancy_skills, back_populates="skills"
+        secondary=vacancy_skills,
+        back_populates="skills",
     )
     resumes: Mapped[List["Resume"]] = relationship(
-        secondary=resume_skills, back_populates="skills"
+        secondary=resume_skills,
+        back_populates="skills",
     )
 
 
@@ -111,6 +107,15 @@ class Applicant(Base):
     educations: Mapped[List["Education"]] = relationship(back_populates="applicant")
 
 
+class CompanyType(Base):
+    __tablename__ = "company_types"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+
+    companies: Mapped[List["Company"]] = relationship(back_populates="company_type")
+
+
 class Company(Base):
     __tablename__ = "companies"
 
@@ -121,13 +126,21 @@ class Company(Base):
     logo: Mapped[Optional[str]] = mapped_column(String)
     founded_year: Mapped[Optional[int]] = mapped_column(Integer)
     employee_count: Mapped[Optional[int]] = mapped_column(Integer)
+    company_type_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("company_types.id"),
+        nullable=True,
+        index=True,
+    )
 
+    company_type: Mapped[Optional["CompanyType"]] = relationship(back_populates="companies")
     user: Mapped[Optional["User"]] = relationship(back_populates="company", uselist=False)
     vacancies: Mapped[List["Vacancy"]] = relationship(back_populates="company")
     cities: Mapped[List["City"]] = relationship(
         secondary=company_cities,
-        back_populates="companies"
+        back_populates="companies",
     )
+
 
 class User(Base):
     __tablename__ = "users"
@@ -280,4 +293,3 @@ class Application(Base):
 
     vacancy: Mapped["Vacancy"] = relationship(back_populates="applications")
     resume: Mapped["Resume"] = relationship(back_populates="applications")
-

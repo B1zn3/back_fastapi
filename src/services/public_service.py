@@ -33,6 +33,21 @@ class PublicService:
         "skills": Skill,
     }
 
+    @staticmethod
+    def _parse_ids_csv(value: Optional[str]) -> list[int]:
+        if not value:
+            return []
+
+        ids: list[int] = []
+        for item in value.split(","):
+            item = item.strip()
+            if not item:
+                continue
+            if item.isdigit():
+                ids.append(int(item))
+
+        return ids
+
     async def get_catalog_items(self, db: AsyncSession, catalog_name: str, skip: int, limit: int):
         model = self.catalog_map.get(catalog_name)
         if not model:
@@ -135,6 +150,7 @@ class PublicService:
             .where(Vacancy.id == vacancy_id, Status.name == self.active_status_name)
             .options(
                 joinedload(Vacancy.company).selectinload(Company.cities),
+                joinedload(Vacancy.company).joinedload(Company.company_type),
                 joinedload(Vacancy.city),
                 joinedload(Vacancy.profession),
                 joinedload(Vacancy.employment_type),
@@ -166,6 +182,11 @@ class PublicService:
             "currency": vacancy.currency.name if vacancy.currency else None,
             "experience": vacancy.experience.name if vacancy.experience else None,
             "skills": [s.name for s in vacancy.skills],
+            "company_type_name": (
+                vacancy.company.company_type.name
+                if vacancy.company and vacancy.company.company_type
+                else None
+            ),
             "company_description": vacancy.company.description if vacancy.company else None,
             "company_website": vacancy.company.website if vacancy.company else None,
             "company_logo": vacancy.company.logo if vacancy.company else None,
@@ -179,10 +200,12 @@ class PublicService:
         db: AsyncSession,
         skip: int,
         limit: int,
-        city_id: Optional[int] = None,
+        city_ids: Optional[str] = None,
         has_vacancies_only: bool = False,
         search: Optional[str] = None,
     ):
+        parsed_city_ids = self._parse_ids_csv(city_ids)
+
         vacancies_subq = (
             select(
                 Vacancy.company_id.label("company_id"),
@@ -200,13 +223,20 @@ class PublicService:
                 func.coalesce(vacancies_subq.c.vacancies_count, 0).label("vacancies_count"),
             )
             .outerjoin(vacancies_subq, vacancies_subq.c.company_id == Company.id)
-            .options(selectinload(Company.cities))
+            .options(
+                selectinload(Company.cities),
+                joinedload(Company.company_type),
+            )
             .order_by(Company.name.asc())
         )
 
-        if city_id:
-            stmt = stmt.join(company_cities, company_cities.c.company_id == Company.id)
-            stmt = stmt.where(company_cities.c.city_id == city_id)
+        if parsed_city_ids:
+            company_ids_subq = (
+                select(company_cities.c.company_id)
+                .where(company_cities.c.city_id.in_(parsed_city_ids))
+                .distinct()
+            )
+            stmt = stmt.where(Company.id.in_(company_ids_subq))
 
         if has_vacancies_only:
             stmt = stmt.where(func.coalesce(vacancies_subq.c.vacancies_count, 0) > 0)
@@ -233,6 +263,7 @@ class PublicService:
                     "vacancies_count": int(vacancies_count or 0),
                     "city_names": [city.name for city in company.cities],
                     "first_letter": first_letter,
+                    "company_type_name": company.company_type.name if company.company_type else None,
                 }
             )
 
@@ -257,7 +288,10 @@ class PublicService:
             )
             .outerjoin(vacancies_subq, vacancies_subq.c.company_id == Company.id)
             .where(Company.id == company_id)
-            .options(selectinload(Company.cities))
+            .options(
+                selectinload(Company.cities),
+                joinedload(Company.company_type),
+            )
         )
 
         result = await db.execute(stmt)
@@ -279,6 +313,7 @@ class PublicService:
             "vacancies_count": int(vacancies_count or 0),
             "city_names": [city.name for city in company.cities],
             "first_letter": company.name.strip()[0].upper() if company.name and company.name.strip() else "#",
+            "company_type_name": company.company_type.name if company.company_type else None,
         }
 
     async def get_professions(

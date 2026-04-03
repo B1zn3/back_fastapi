@@ -69,7 +69,7 @@ async def get_public_catalog_items(
 async def get_public_companies(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    city_id: Optional[int] = Query(None),
+    city_ids: Optional[str] = Query(None, description="Список id городов через запятую: 1,2,3"),
     has_vacancies_only: bool = Query(False),
     search: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
@@ -78,7 +78,7 @@ async def get_public_companies(
         db=db,
         skip=skip,
         limit=limit,
-        city_id=city_id,
+        city_ids=city_ids,
         has_vacancies_only=has_vacancies_only,
         search=search,
     )
