@@ -1,24 +1,28 @@
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from src.models.model import (
     City,
+    Company,
     EducationalInstitution,
     EmploymentType,
     Experience,
     Profession,
+    Skill,
     Status,
-    WorkSchedule,
     Vacancy,
+    WorkSchedule,
+    company_cities,
 )
 
 
 class PublicService:
     active_status_name = "Активна"
+
     catalog_map = {
         "cities": City,
         "professions": Profession,
@@ -26,6 +30,7 @@ class PublicService:
         "work-schedules": WorkSchedule,
         "employment-types": EmploymentType,
         "educational-institutions": EducationalInstitution,
+        "skills": Skill,
     }
 
     async def get_catalog_items(self, db: AsyncSession, catalog_name: str, skip: int, limit: int):
@@ -33,9 +38,11 @@ class PublicService:
         if not model:
             raise HTTPException(status_code=404, detail="Справочник не найден")
 
-        result = await db.execute(select(model).order_by(model.id).offset(skip).limit(limit))
+        result = await db.execute(
+            select(model).order_by(model.name.asc()).offset(skip).limit(limit)
+        )
         return result.scalars().all()
-    
+
     async def list_catalog_items(self, db: AsyncSession, catalog_name: str, skip: int, limit: int):
         return await self.get_catalog_items(db, catalog_name, skip, limit)
 
@@ -47,13 +54,27 @@ class PublicService:
         city_id: Optional[int] = None,
         profession_id: Optional[int] = None,
         company_id: Optional[int] = None,
+        employment_type_id: Optional[int] = None,
+        experience_id: Optional[int] = None,
+        work_schedule_id: Optional[int] = None,
+        salary_from: Optional[int] = None,
+        salary_to: Optional[int] = None,
         search: Optional[str] = None,
     ):
         stmt = (
             select(Vacancy)
             .join(Vacancy.status)
             .where(Status.name == self.active_status_name)
-            .options(joinedload(Vacancy.company), joinedload(Vacancy.city), joinedload(Vacancy.profession))
+            .options(
+                joinedload(Vacancy.company),
+                joinedload(Vacancy.city),
+                joinedload(Vacancy.profession),
+                joinedload(Vacancy.employment_type),
+                joinedload(Vacancy.work_schedule),
+                joinedload(Vacancy.currency),
+                joinedload(Vacancy.experience),
+                selectinload(Vacancy.skills),
+            )
             .order_by(Vacancy.created_at.desc())
         )
 
@@ -63,11 +84,30 @@ class PublicService:
             stmt = stmt.where(Vacancy.profession_id == profession_id)
         if company_id:
             stmt = stmt.where(Vacancy.company_id == company_id)
+        if employment_type_id:
+            stmt = stmt.where(Vacancy.employment_type_id == employment_type_id)
+        if experience_id:
+            stmt = stmt.where(Vacancy.experience_id == experience_id)
+        if work_schedule_id:
+            stmt = stmt.where(Vacancy.work_schedule_id == work_schedule_id)
+        if salary_from is not None:
+            stmt = stmt.where(Vacancy.salary_max >= salary_from)
+        if salary_to is not None:
+            stmt = stmt.where(Vacancy.salary_min <= salary_to)
+
         if search:
-            stmt = stmt.where(func.lower(Vacancy.title).like(f"%{search.lower()}%"))
+            search_value = f"%{search.lower()}%"
+            stmt = stmt.where(
+                or_(
+                    func.lower(Vacancy.title).like(search_value),
+                    func.lower(Vacancy.description).like(search_value),
+                    func.lower(Company.name).like(search_value),
+                )
+            ).join(Vacancy.company)
 
         result = await db.execute(stmt.offset(skip).limit(limit))
-        vacancies = result.scalars().all()
+        vacancies = result.scalars().unique().all()
+
         return [
             {
                 "id": v.id,
@@ -76,9 +116,14 @@ class PublicService:
                 "salary_min": v.salary_min,
                 "salary_max": v.salary_max,
                 "created_at": v.created_at,
-                "company_name": v.company.name,
-                "city_name": v.city.name,
-                "profession_name": v.profession.name,
+                "company_name": v.company.name if v.company else None,
+                "city_name": v.city.name if v.city else None,
+                "profession_name": v.profession.name if v.profession else None,
+                "employment_type": v.employment_type.name if v.employment_type else None,
+                "work_schedule": v.work_schedule.name if v.work_schedule else None,
+                "experience": v.experience.name if v.experience else None,
+                "currency": v.currency.name if v.currency else None,
+                "skills": [s.name for s in v.skills] if v.skills else [],
             }
             for v in vacancies
         ]
@@ -89,7 +134,7 @@ class PublicService:
             .join(Vacancy.status)
             .where(Vacancy.id == vacancy_id, Status.name == self.active_status_name)
             .options(
-                joinedload(Vacancy.company),
+                joinedload(Vacancy.company).selectinload(Company.cities),
                 joinedload(Vacancy.city),
                 joinedload(Vacancy.profession),
                 joinedload(Vacancy.employment_type),
@@ -101,6 +146,7 @@ class PublicService:
         )
         result = await db.execute(stmt)
         vacancy = result.scalar_one_or_none()
+
         if not vacancy:
             raise HTTPException(status_code=404, detail="Вакансия не найдена или недоступна")
 
@@ -112,20 +158,146 @@ class PublicService:
             "salary_max": vacancy.salary_max,
             "created_at": vacancy.created_at,
             "updated_at": vacancy.updated_at,
-            "company_name": vacancy.company.name,
-            "city_name": vacancy.city.name,
-            "profession_name": vacancy.profession.name,
-            "employment_type": vacancy.employment_type.name,
-            "work_schedule": vacancy.work_schedule.name,
-            "currency": vacancy.currency.name,
-            "experience": vacancy.experience.name,
+            "company_name": vacancy.company.name if vacancy.company else None,
+            "city_name": vacancy.city.name if vacancy.city else None,
+            "profession_name": vacancy.profession.name if vacancy.profession else None,
+            "employment_type": vacancy.employment_type.name if vacancy.employment_type else None,
+            "work_schedule": vacancy.work_schedule.name if vacancy.work_schedule else None,
+            "currency": vacancy.currency.name if vacancy.currency else None,
+            "experience": vacancy.experience.name if vacancy.experience else None,
             "skills": [s.name for s in vacancy.skills],
-                        "company_description": vacancy.company.description,
-            "company_website": vacancy.company.website,
-            "company_logo": vacancy.company.logo,
-            "company_founded_year": vacancy.company.founded_year,
-            "company_employee_count": vacancy.company.employee_count,
+            "company_description": vacancy.company.description if vacancy.company else None,
+            "company_website": vacancy.company.website if vacancy.company else None,
+            "company_logo": vacancy.company.logo if vacancy.company else None,
+            "company_founded_year": vacancy.company.founded_year if vacancy.company else None,
+            "company_employee_count": vacancy.company.employee_count if vacancy.company else None,
+            "company_cities": [city.name for city in vacancy.company.cities] if vacancy.company else [],
         }
+
+    async def get_companies(
+        self,
+        db: AsyncSession,
+        skip: int,
+        limit: int,
+        city_id: Optional[int] = None,
+        has_vacancies_only: bool = False,
+        search: Optional[str] = None,
+    ):
+        vacancies_subq = (
+            select(
+                Vacancy.company_id.label("company_id"),
+                func.count(Vacancy.id).label("vacancies_count"),
+            )
+            .join(Vacancy.status)
+            .where(Status.name == self.active_status_name)
+            .group_by(Vacancy.company_id)
+            .subquery()
+        )
+
+        stmt = (
+            select(
+                Company,
+                func.coalesce(vacancies_subq.c.vacancies_count, 0).label("vacancies_count"),
+            )
+            .outerjoin(vacancies_subq, vacancies_subq.c.company_id == Company.id)
+            .options(selectinload(Company.cities))
+            .order_by(Company.name.asc())
+        )
+
+        if city_id:
+            stmt = stmt.join(company_cities, company_cities.c.company_id == Company.id)
+            stmt = stmt.where(company_cities.c.city_id == city_id)
+
+        if has_vacancies_only:
+            stmt = stmt.where(func.coalesce(vacancies_subq.c.vacancies_count, 0) > 0)
+
+        if search:
+            stmt = stmt.where(func.lower(Company.name).like(f"%{search.lower()}%"))
+
+        result = await db.execute(stmt.offset(skip).limit(limit))
+        rows = result.unique().all()
+
+        items = []
+        for company, vacancies_count in rows:
+            first_letter = company.name.strip()[0].upper() if company.name and company.name.strip() else "#"
+
+            items.append(
+                {
+                    "id": company.id,
+                    "name": company.name,
+                    "description": company.description,
+                    "website": company.website,
+                    "logo": company.logo,
+                    "founded_year": company.founded_year,
+                    "employee_count": company.employee_count,
+                    "vacancies_count": int(vacancies_count or 0),
+                    "city_names": [city.name for city in company.cities],
+                    "first_letter": first_letter,
+                }
+            )
+
+        return items
+
+    async def get_company_detail(self, db: AsyncSession, company_id: int):
+        vacancies_subq = (
+            select(
+                Vacancy.company_id.label("company_id"),
+                func.count(Vacancy.id).label("vacancies_count"),
+            )
+            .join(Vacancy.status)
+            .where(Status.name == self.active_status_name)
+            .group_by(Vacancy.company_id)
+            .subquery()
+        )
+
+        stmt = (
+            select(
+                Company,
+                func.coalesce(vacancies_subq.c.vacancies_count, 0).label("vacancies_count"),
+            )
+            .outerjoin(vacancies_subq, vacancies_subq.c.company_id == Company.id)
+            .where(Company.id == company_id)
+            .options(selectinload(Company.cities))
+        )
+
+        result = await db.execute(stmt)
+        row = result.first()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Компания не найдена или недоступна")
+
+        company, vacancies_count = row
+
+        return {
+            "id": company.id,
+            "name": company.name,
+            "description": company.description,
+            "website": company.website,
+            "logo": company.logo,
+            "founded_year": company.founded_year,
+            "employee_count": company.employee_count,
+            "vacancies_count": int(vacancies_count or 0),
+            "city_names": [city.name for city in company.cities],
+            "first_letter": company.name.strip()[0].upper() if company.name and company.name.strip() else "#",
+        }
+
+    async def get_professions(
+        self,
+        db: AsyncSession,
+        skip: int,
+        limit: int,
+    ):
+        stmt = select(Profession).order_by(Profession.name.asc()).offset(skip).limit(limit)
+        result = await db.execute(stmt)
+        professions = result.scalars().all()
+
+        return [
+            {
+                "id": profession.id,
+                "name": profession.name,
+            }
+            for profession in professions
+        ]
 
 
 public_service = PublicService()

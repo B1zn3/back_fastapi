@@ -8,6 +8,12 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 class Base(DeclarativeBase):
     pass
 
+company_cities = Table(
+    "company_cities",
+    Base.metadata,
+    Column("company_id", Integer, ForeignKey("companies.id"), nullable=False),
+    Column("city_id", Integer, ForeignKey("cities.id"), nullable=False),
+)
 
 vacancy_skills = Table(
     "vacancy_skills",
@@ -32,7 +38,10 @@ class City(Base):
 
     applicants: Mapped[List["Applicant"]] = relationship(back_populates="city")
     vacancies: Mapped[List["Vacancy"]] = relationship(back_populates="city")
-
+    companies: Mapped[List["Company"]] = relationship(
+        secondary=company_cities,
+        back_populates="cities"
+    )
 '''"Полная занятость",
     "Частичная занятость",
     "Стажировка",
@@ -115,7 +124,10 @@ class Company(Base):
 
     user: Mapped[Optional["User"]] = relationship(back_populates="company", uselist=False)
     vacancies: Mapped[List["Vacancy"]] = relationship(back_populates="company")
-
+    cities: Mapped[List["City"]] = relationship(
+        secondary=company_cities,
+        back_populates="companies"
+    )
 
 class User(Base):
     __tablename__ = "users"
@@ -268,3 +280,4 @@ class Application(Base):
 
     vacancy: Mapped["Vacancy"] = relationship(back_populates="applications")
     resume: Mapped["Resume"] = relationship(back_populates="applications")
+

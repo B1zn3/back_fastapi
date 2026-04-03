@@ -63,3 +63,46 @@ class VacancyPublicDetail(VacancyPublicListItem):
     company_founded_year: Optional[int] = None
     company_employee_count: Optional[int] = None
 
+class CompanyPublicListItem(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    website: Optional[str] = None
+    logo: Optional[str] = None
+    founded_year: Optional[int] = None
+    employee_count: Optional[int] = None
+    vacancies_count: int = 0
+    city_names: list[str] = []
+
+class ProfessionPublicListItem(BaseModel):
+    id: int
+    name: str
+
+class CompanyPublicDetail(CompanyPublicListItem):
+    pass
+
+class VacancyPublicDetail(BaseModel):
+    id: int
+    title: str
+    description: str
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    company_name: Optional[str] = None
+    city_name: Optional[str] = None
+    profession_name: Optional[str] = None
+    employment_type: Optional[str] = None
+    work_schedule: Optional[str] = None
+    currency: Optional[str] = None
+    experience: Optional[str] = None
+
+    skills: list[str] = []
+
+    company_description: Optional[str] = None
+    company_website: Optional[str] = None
+    company_logo: Optional[str] = None
+    company_founded_year: Optional[int] = None
+    company_employee_count: Optional[int] = None
+    company_cities: list[str] = []
