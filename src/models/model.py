@@ -252,7 +252,7 @@ class WorkExperience(Base):
     company_name: Mapped[str] = mapped_column(String, nullable=False)
     position: Mapped[str] = mapped_column(String, nullable=False)
     start_date: Mapped[datetime] = mapped_column(Date, nullable=False)
-    end_date: Mapped[datetime] = mapped_column(Date, nullable=False)
+    end_date: Mapped[datetime] = mapped_column(Date, nullable=True)
     description: Mapped[str] = mapped_column(Text, nullable=False)
 
     resume: Mapped["Resume"] = relationship(back_populates="work_experiences")

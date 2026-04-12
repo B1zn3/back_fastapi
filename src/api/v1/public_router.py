@@ -6,11 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.deps.db_deps import get_db
 from src.schemas.admin_schema import (
     CatalogItemResponse,
-    CompanyPublicDetail,
+   
+)
+from src.schemas.public_schema import (
+     CompanyPublicDetail,
     CompanyPublicListItem,
     ProfessionPublicListItem,
     VacancyPublicDetail,
-)
+    )
 from src.services.public_service import public_service
 
 public_router = APIRouter(prefix="/public", tags=["Публичные данные"])
