@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 
 class CatalogItemCreate(BaseModel):
@@ -176,3 +176,33 @@ class DashboardResponse(BaseModel):
     recent_users: list[DashboardRecentUserItem] = Field(default_factory=list)
     recent_vacancies: list[DashboardRecentVacancyItem] = Field(default_factory=list)
     recent_applications: list[DashboardRecentApplicationItem] = Field(default_factory=list)
+
+
+class AdminCreateRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=8)
+
+
+class AdminUpdateRequest(BaseModel):
+    email: Optional[EmailStr] = None
+    new_password: Optional[str] = Field(default=None, min_length=8)
+    is_active: Optional[bool] = None
+    current_admin_password: str = Field(..., min_length=8)
+
+
+class AdminDeleteRequest(BaseModel):
+    current_admin_password: str = Field(..., min_length=8)
+
+
+class AdminListItemResponse(BaseModel):
+    id: int
+    email: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AdminDetailResponse(AdminListItemResponse):
+    role: str

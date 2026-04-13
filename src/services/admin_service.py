@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import HTTPException
@@ -6,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
+from src.core.hash import HashService
 from src.models.model import (
     Applicant,
     Application,
@@ -29,6 +31,7 @@ from src.models.model import (
     resume_skills,
     vacancy_skills,
 )
+from src.redis.auth import session_manager
 
 
 class AdminService:
@@ -42,7 +45,7 @@ class AdminService:
         "work-schedules": WorkSchedule,
         "employment-types": EmploymentType,
         "educational-institutions": EducationalInstitution,
-        "company-types": CompanyType
+        "company-types": CompanyType,
     }
 
     def _get_catalog_model(self, catalog_name: str):
@@ -64,59 +67,99 @@ class AdminService:
         value = result.scalar_one_or_none()
         return int(value or 0)
 
-    async def _catalog_usage_counts(self, db: AsyncSession, catalog_name: str, item_id: int) -> dict[str, int]:
+    async def _get_admin_role(self, db: AsyncSession) -> Role:
+        result = await db.execute(select(Role).where(Role.name == "admin"))
+        role = result.scalar_one_or_none()
+        if not role:
+            raise HTTPException(status_code=404, detail="Роль admin не найдена")
+        return role
+
+    async def _count_active_admins(self, db: AsyncSession) -> int:
+        return await self._scalar_count(
+            db,
+            select(func.count(User.id))
+            .select_from(User)
+            .join(Role, User.role_id == Role.id)
+            .where(Role.name == "admin", User.is_active.is_(True)),
+        )
+
+    async def _catalog_usage_counts(
+        self,
+        db: AsyncSession,
+        catalog_name: str,
+        item_id: int,
+    ) -> dict[str, int]:
         counts: dict[str, int] = {}
 
         if catalog_name == "cities":
             counts["соискателях"] = await self._scalar_count(
-                db, select(func.count()).select_from(Applicant).where(Applicant.city_id == item_id)
+                db,
+                select(func.count()).select_from(Applicant).where(Applicant.city_id == item_id),
             )
             counts["вакансиях"] = await self._scalar_count(
-                db, select(func.count()).select_from(Vacancy).where(Vacancy.city_id == item_id)
+                db,
+                select(func.count()).select_from(Vacancy).where(Vacancy.city_id == item_id),
             )
             counts["компаниях"] = await self._scalar_count(
-                db, select(func.count()).select_from(company_cities).where(company_cities.c.city_id == item_id)
-            )
-        elif catalog_name == "professions":
-            counts["резюме"] = await self._scalar_count(
-                db, select(func.count()).select_from(Resume).where(Resume.profession_id == item_id)
-            )
-            counts["вакансиях"] = await self._scalar_count(
-                db, select(func.count()).select_from(Vacancy).where(Vacancy.profession_id == item_id)
-            )
-        elif catalog_name == "skills":
-            counts["резюме"] = await self._scalar_count(
-                db, select(func.count()).select_from(resume_skills).where(resume_skills.c.skill_id == item_id)
-            )
-            counts["вакансиях"] = await self._scalar_count(
-                db, select(func.count()).select_from(vacancy_skills).where(vacancy_skills.c.skill_id == item_id)
-            )
-        elif catalog_name == "currencies":
-            counts["вакансиях"] = await self._scalar_count(
-                db, select(func.count()).select_from(Vacancy).where(Vacancy.currency_id == item_id)
-            )
-        elif catalog_name == "experiences":
-            counts["вакансиях"] = await self._scalar_count(
-                db, select(func.count()).select_from(Vacancy).where(Vacancy.experience_id == item_id)
-            )
-        elif catalog_name == "statuses":
-            counts["вакансиях"] = await self._scalar_count(
-                db, select(func.count()).select_from(Vacancy).where(Vacancy.status_id == item_id)
-            )
-        elif catalog_name == "work-schedules":
-            counts["вакансиях"] = await self._scalar_count(
-                db, select(func.count()).select_from(Vacancy).where(Vacancy.work_schedule_id == item_id)
-            )
-        elif catalog_name == "employment-types":
-            counts["вакансиях"] = await self._scalar_count(
-                db, select(func.count()).select_from(Vacancy).where(Vacancy.employment_type_id == item_id)
-            )
-        elif catalog_name == "educational-institutions":
-            counts["образовании"] = await self._scalar_count(
-                db, select(func.count()).select_from(Education).where(Education.institution_id == item_id)
+                db,
+                select(func.count()).select_from(company_cities).where(company_cities.c.city_id == item_id),
             )
 
-        
+        elif catalog_name == "professions":
+            counts["резюме"] = await self._scalar_count(
+                db,
+                select(func.count()).select_from(Resume).where(Resume.profession_id == item_id),
+            )
+            counts["вакансиях"] = await self._scalar_count(
+                db,
+                select(func.count()).select_from(Vacancy).where(Vacancy.profession_id == item_id),
+            )
+
+        elif catalog_name == "skills":
+            counts["резюме"] = await self._scalar_count(
+                db,
+                select(func.count()).select_from(resume_skills).where(resume_skills.c.skill_id == item_id),
+            )
+            counts["вакансиях"] = await self._scalar_count(
+                db,
+                select(func.count()).select_from(vacancy_skills).where(vacancy_skills.c.skill_id == item_id),
+            )
+
+        elif catalog_name == "currencies":
+            counts["вакансиях"] = await self._scalar_count(
+                db,
+                select(func.count()).select_from(Vacancy).where(Vacancy.currency_id == item_id),
+            )
+
+        elif catalog_name == "experiences":
+            counts["вакансиях"] = await self._scalar_count(
+                db,
+                select(func.count()).select_from(Vacancy).where(Vacancy.experience_id == item_id),
+            )
+
+        elif catalog_name == "statuses":
+            counts["вакансиях"] = await self._scalar_count(
+                db,
+                select(func.count()).select_from(Vacancy).where(Vacancy.status_id == item_id),
+            )
+
+        elif catalog_name == "work-schedules":
+            counts["вакансиях"] = await self._scalar_count(
+                db,
+                select(func.count()).select_from(Vacancy).where(Vacancy.work_schedule_id == item_id),
+            )
+
+        elif catalog_name == "employment-types":
+            counts["вакансиях"] = await self._scalar_count(
+                db,
+                select(func.count()).select_from(Vacancy).where(Vacancy.employment_type_id == item_id),
+            )
+
+        elif catalog_name == "educational-institutions":
+            counts["образовании"] = await self._scalar_count(
+                db,
+                select(func.count()).select_from(Education).where(Education.institution_id == item_id),
+            )
 
         return {key: value for key, value in counts.items() if value > 0}
 
@@ -129,6 +172,7 @@ class AdminService:
         model = self._get_catalog_model(catalog_name)
         instance = model(name=name.strip())
         db.add(instance)
+
         try:
             await db.commit()
             await db.refresh(instance)
@@ -140,10 +184,12 @@ class AdminService:
     async def update_catalog_item(self, db: AsyncSession, catalog_name: str, item_id: int, name: str):
         model = self._get_catalog_model(catalog_name)
         instance = await db.get(model, item_id)
+
         if not instance:
             raise HTTPException(status_code=404, detail="Элемент справочника не найден")
 
         instance.name = name.strip()
+
         try:
             await db.commit()
             await db.refresh(instance)
@@ -155,6 +201,7 @@ class AdminService:
     async def delete_catalog_item(self, db: AsyncSession, catalog_name: str, item_id: int):
         model = self._get_catalog_model(catalog_name)
         instance = await db.get(model, item_id)
+
         if not instance:
             raise HTTPException(status_code=404, detail="Элемент справочника не найден")
 
@@ -172,7 +219,8 @@ class AdminService:
     async def get_dashboard(self, db: AsyncSession):
         users_total = await self._scalar_count(db, select(func.count()).select_from(User))
         users_active = await self._scalar_count(
-            db, select(func.count()).select_from(User).where(User.is_active.is_(True))
+            db,
+            select(func.count()).select_from(User).where(User.is_active.is_(True)),
         )
         companies_total = await self._scalar_count(db, select(func.count()).select_from(Company))
         applicants_total = await self._scalar_count(db, select(func.count()).select_from(Applicant))
@@ -201,12 +249,14 @@ class AdminService:
             .order_by(User.created_at.desc())
             .limit(5)
         )
+
         recent_vacancies_result = await db.execute(
             select(Vacancy)
             .options(joinedload(Vacancy.company), joinedload(Vacancy.status))
             .order_by(Vacancy.created_at.desc())
             .limit(5)
         )
+
         recent_applications_result = await db.execute(
             select(Application)
             .options(
@@ -241,10 +291,13 @@ class AdminService:
         search: Optional[str] = None,
     ):
         stmt = select(User).options(joinedload(User.role)).order_by(User.id)
+
         if role:
             stmt = stmt.join(User.role).where(Role.name == role)
+
         if is_active is not None:
             stmt = stmt.where(User.is_active == is_active)
+
         if search:
             stmt = stmt.where(func.lower(User.email).like(f"%{search.lower()}%"))
 
@@ -265,30 +318,21 @@ class AdminService:
         )
         result = await db.execute(stmt)
         user = result.scalar_one_or_none()
+
         if not user:
             raise HTTPException(status_code=404, detail="Пользователь не найден")
+
         return user
 
     async def update_user_status(self, db: AsyncSession, user_id: int, is_active: bool):
         user = await db.get(User, user_id, options=[joinedload(User.role)])
+
         if not user:
             raise HTTPException(status_code=404, detail="Пользователь не найден")
+
         user.is_active = is_active
-        await db.commit()
-        await db.refresh(user)
-        return user
+        user.updated_at = datetime.utcnow()
 
-    async def update_user_role(self, db: AsyncSession, user_id: int, role_name: str):
-        user = await db.get(User, user_id, options=[joinedload(User.role)])
-        if not user:
-            raise HTTPException(status_code=404, detail="Пользователь не найден")
-
-        role_result = await db.execute(select(Role).where(func.lower(Role.name) == role_name.lower()))
-        role = role_result.scalar_one_or_none()
-        if not role:
-            raise HTTPException(status_code=404, detail="Роль не найдена")
-
-        user.role_id = role.id
         await db.commit()
         await db.refresh(user)
         return user
@@ -311,8 +355,10 @@ class AdminService:
             )
             .order_by(Company.id)
         )
+
         if search:
             stmt = stmt.where(func.lower(Company.name).like(f"%{search.lower()}%"))
+
         if is_active is not None:
             stmt = stmt.join(Company.user, isouter=True).where(
                 or_(User.is_active == is_active, Company.user == None)  # noqa: E711
@@ -334,23 +380,30 @@ class AdminService:
         )
         result = await db.execute(stmt)
         company = result.scalar_one_or_none()
+
         if not company:
             raise HTTPException(status_code=404, detail="Компания не найдена")
+
         return company
 
     async def update_company_status(self, db: AsyncSession, company_id: int, is_active: bool):
         company = await self.get_company_detail(db, company_id)
+
         if not company.user:
             raise HTTPException(status_code=409, detail="Компания не связана с пользователем")
 
         company.user.is_active = is_active
+        company.user.updated_at = datetime.utcnow()
+
         await db.commit()
         return await self.get_company_detail(db, company_id)
 
     async def delete_company(self, db: AsyncSession, company_id: int):
         company = await db.get(Company, company_id)
+
         if not company:
             raise HTTPException(status_code=404, detail="Компания не найдена")
+
         await db.delete(company)
         await db.commit()
 
@@ -399,35 +452,38 @@ class AdminService:
                 joinedload(Applicant.city),
                 joinedload(Applicant.user),
                 selectinload(Applicant.educations).joinedload(Education.institution),
-                selectinload(Applicant.resumes)
-                .joinedload(Resume.profession),
-                selectinload(Applicant.resumes)
-                .selectinload(Resume.skills),
-                selectinload(Applicant.resumes)
-                .selectinload(Resume.work_experiences),
-                selectinload(Applicant.resumes)
-                .selectinload(Resume.applications),
+                selectinload(Applicant.resumes).joinedload(Resume.profession),
+                selectinload(Applicant.resumes).selectinload(Resume.skills),
+                selectinload(Applicant.resumes).selectinload(Resume.work_experiences),
+                selectinload(Applicant.resumes).selectinload(Resume.applications),
             )
         )
         result = await db.execute(stmt)
         applicant = result.scalar_one_or_none()
+
         if not applicant:
             raise HTTPException(status_code=404, detail="Соискатель не найден")
+
         return applicant
 
     async def update_applicant_status(self, db: AsyncSession, applicant_id: int, is_active: bool):
         applicant = await self.get_applicant_detail(db, applicant_id)
+
         if not applicant.user:
             raise HTTPException(status_code=409, detail="Соискатель не связан с пользователем")
 
         applicant.user.is_active = is_active
+        applicant.user.updated_at = datetime.utcnow()
+
         await db.commit()
         return await self.get_applicant_detail(db, applicant_id)
 
     async def delete_applicant(self, db: AsyncSession, applicant_id: int):
         applicant = await db.get(Applicant, applicant_id)
+
         if not applicant:
             raise HTTPException(status_code=404, detail="Соискатель не найден")
+
         await db.delete(applicant)
         await db.commit()
 
@@ -490,19 +546,24 @@ class AdminService:
         )
         result = await db.execute(stmt)
         vacancy = result.scalar_one_or_none()
+
         if not vacancy:
             raise HTTPException(status_code=404, detail="Вакансия не найдена")
+
         return vacancy
 
     async def update_vacancy_status(self, db: AsyncSession, vacancy_id: int, status_id: int):
         vacancy = await db.get(Vacancy, vacancy_id)
         if not vacancy:
             raise HTTPException(status_code=404, detail="Вакансия не найдена")
+
         status_entity = await db.get(Status, status_id)
         if not status_entity:
             raise HTTPException(status_code=404, detail="Статус не найден")
+
         vacancy.status_id = status_id
         await db.commit()
+
         return await self.get_vacancy(db, vacancy_id)
 
     async def bulk_update_vacancy_status(self, db: AsyncSession, vacancy_ids: list[int], status_id: int):
@@ -515,15 +576,19 @@ class AdminService:
 
         result = await db.execute(select(Vacancy).where(Vacancy.id.in_(vacancy_ids)))
         vacancies = result.scalars().all()
+
         for vacancy in vacancies:
             vacancy.status_id = status_id
+
         await db.commit()
         return vacancies
 
     async def delete_vacancy(self, db: AsyncSession, vacancy_id: int):
         vacancy = await db.get(Vacancy, vacancy_id)
+
         if not vacancy:
             raise HTTPException(status_code=404, detail="Вакансия не найдена")
+
         await db.delete(vacancy)
         await db.commit()
 
@@ -575,18 +640,168 @@ class AdminService:
         )
         result = await db.execute(stmt)
         application = result.scalar_one_or_none()
+
         if not application:
             raise HTTPException(status_code=404, detail="Отклик не найден")
+
         return application
 
-    async def update_application_status(self, db: AsyncSession, vacancy_id: int, resume_id: int, status_value: str):
+    async def update_application_status(
+        self,
+        db: AsyncSession,
+        vacancy_id: int,
+        resume_id: int,
+        status_value: str,
+    ):
         application = await db.get(Application, {"vacancy_id": vacancy_id, "resume_id": resume_id})
+
         if not application:
             raise HTTPException(status_code=404, detail="Отклик не найден")
 
         application.status = status_value.strip()
         await db.commit()
+
         return await self.get_application_detail(db, vacancy_id, resume_id)
+
+    async def list_admins(
+        self,
+        db: AsyncSession,
+        skip: int,
+        limit: int,
+        search: Optional[str] = None,
+    ):
+        stmt = (
+            select(User)
+            .join(Role, User.role_id == Role.id)
+            .where(Role.name == "admin")
+            .options(joinedload(User.role))
+            .order_by(User.id)
+        )
+
+        if search:
+            stmt = stmt.where(func.lower(User.email).like(f"%{search.lower()}%"))
+
+        result = await db.execute(stmt.offset(skip).limit(limit))
+        return result.scalars().all()
+
+    async def get_admin_detail(self, db: AsyncSession, admin_id: int):
+        stmt = (
+            select(User)
+            .join(Role, User.role_id == Role.id)
+            .where(User.id == admin_id, Role.name == "admin")
+            .options(joinedload(User.role))
+        )
+        result = await db.execute(stmt)
+        admin = result.scalar_one_or_none()
+
+        if not admin:
+            raise HTTPException(status_code=404, detail="Администратор не найден")
+
+        return admin
+
+    async def create_admin(self, db: AsyncSession, email: str, password: str):
+        normalized_email = email.lower().strip()
+
+        existing = await db.execute(select(User).where(User.email == normalized_email))
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Пользователь с таким email уже существует")
+
+        admin_role = await self._get_admin_role(db)
+
+        user = User(
+            email=normalized_email,
+            password=HashService.get_password_hash(password),
+            role_id=admin_role.id,
+            is_active=True,
+            company_id=None,
+            applicant_id=None,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+        return user
+
+    async def update_admin(
+        self,
+        db: AsyncSession,
+        admin_id: int,
+        actor: User,
+        email: Optional[str],
+        new_password: Optional[str],
+        is_active: Optional[bool],
+        current_admin_password: str,
+    ):
+        if not HashService.verify_password(current_admin_password, actor.password):
+            raise HTTPException(status_code=403, detail="Неверный пароль администратора")
+
+        admin = await self.get_admin_detail(db, admin_id)
+
+        if actor.id == admin.id and is_active is False:
+            raise HTTPException(status_code=400, detail="Нельзя заблокировать самого себя")
+
+        if is_active is False:
+            active_admins_count = await self._count_active_admins(db)
+            if active_admins_count <= 1 and admin.is_active:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Нельзя заблокировать последнего активного администратора",
+                )
+
+        if email:
+            normalized_email = email.lower().strip()
+            if normalized_email != admin.email:
+                existing = await db.execute(
+                    select(User).where(User.email == normalized_email, User.id != admin.id)
+                )
+                if existing.scalar_one_or_none():
+                    raise HTTPException(status_code=409, detail="Email уже используется")
+                admin.email = normalized_email
+
+        if new_password:
+            admin.password = HashService.get_password_hash(new_password)
+
+        if is_active is not None:
+            admin.is_active = is_active
+
+        admin.updated_at = datetime.utcnow()
+
+        await db.commit()
+        await db.refresh(admin)
+
+        if new_password or is_active is False:
+            await session_manager.delete_all_sessions(str(admin.id))
+
+        return admin
+
+    async def delete_admin(
+        self,
+        db: AsyncSession,
+        admin_id: int,
+        actor: User,
+        current_admin_password: str,
+    ):
+        if not HashService.verify_password(current_admin_password, actor.password):
+            raise HTTPException(status_code=403, detail="Неверный пароль администратора")
+
+        admin = await self.get_admin_detail(db, admin_id)
+
+        if actor.id == admin.id:
+            raise HTTPException(status_code=400, detail="Нельзя удалить самого себя")
+
+        active_admins_count = await self._count_active_admins(db)
+        if active_admins_count <= 1 and admin.is_active:
+            raise HTTPException(
+                status_code=400,
+                detail="Нельзя удалить последнего активного администратора",
+            )
+
+        await session_manager.delete_all_sessions(str(admin.id))
+        await db.delete(admin)
+        await db.commit()
 
 
 admin_service = AdminService()

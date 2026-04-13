@@ -5,9 +5,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.deps.db_deps import get_db
 from src.deps.role_checker import require_role
-from src.models.model import Applicant, Application, Company, Resume, User, Vacancy
+from src.models.model import Applicant, Application, Company, Resume, User
 from src.schemas.admin_schema import (
+    AdminCreateRequest,
+    AdminDeleteRequest,
+    AdminDetailResponse,
     AdminEntityStatusUpdate,
+    AdminListItemResponse,
+    AdminUpdateRequest,
     ApplicantAdminDetailResponse,
     ApplicantAdminListItem,
     ApplicantEducationAdminItem,
@@ -26,14 +31,12 @@ from src.schemas.admin_schema import (
     DashboardResponse,
     UserAdminResponse,
     UserDetailAdminResponse,
-    UserRoleUpdate,
     UserStatusUpdate,
     VacancyBulkStatusUpdate,
     VacancyModerationUpdate,
 )
 from src.schemas.company_schemas.vacancy_schema import VacancyResponse
 from src.services.admin_service import admin_service
-
 
 admin_router = APIRouter(prefix="/admin", tags=["Администрирование"])
 
@@ -153,7 +156,13 @@ def map_applicant_detail(applicant: Applicant) -> ApplicantAdminDetailResponse:
 def map_application(application: Application) -> ApplicationAdminListItem:
     applicant = application.resume.applicant if application.resume else None
     applicant_name = " ".join(
-        part for part in [getattr(applicant, "last_name", None), getattr(applicant, "first_name", None), getattr(applicant, "middle_name", None)] if part
+        part
+        for part in [
+            getattr(applicant, "last_name", None),
+            getattr(applicant, "first_name", None),
+            getattr(applicant, "middle_name", None),
+        ]
+        if part
     ) if applicant else None
 
     return ApplicationAdminListItem(
@@ -185,6 +194,7 @@ async def get_dashboard(
     db: AsyncSession = Depends(get_db),
 ):
     data = await admin_service.get_dashboard(db)
+
     return DashboardResponse(
         users_total=data["users_total"],
         users_active=data["users_active"],
@@ -220,8 +230,12 @@ async def get_dashboard(
                 resume_id=application.resume_id,
                 status=application.status,
                 vacancy_title=application.vacancy.title if application.vacancy else None,
-                company_name=application.vacancy.company.name if application.vacancy and application.vacancy.company else None,
-                resume_profession=application.resume.profession.name if application.resume and application.resume.profession else None,
+                company_name=application.vacancy.company.name
+                if application.vacancy and application.vacancy.company
+                else None,
+                resume_profession=application.resume.profession.name
+                if application.resume and application.resume.profession
+                else None,
                 created_at=getattr(application, "created_at", None),
             )
             for application in data["recent_applications"]
@@ -240,7 +254,11 @@ async def list_catalog_items(
     return await admin_service.list_catalog_items(db, catalog_name, skip, limit)
 
 
-@admin_router.post("/catalogs/{catalog_name}", response_model=CatalogItemResponse, status_code=status.HTTP_201_CREATED)
+@admin_router.post(
+    "/catalogs/{catalog_name}",
+    response_model=CatalogItemResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_catalog_item(
     catalog_name: str,
     payload: CatalogItemCreate,
@@ -269,6 +287,102 @@ async def delete_catalog_item(
     db: AsyncSession = Depends(get_db),
 ):
     await admin_service.delete_catalog_item(db, catalog_name, item_id)
+
+
+@admin_router.get("/admins", response_model=list[AdminListItemResponse])
+async def list_admins(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    search: Optional[str] = Query(None),
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    admins = await admin_service.list_admins(db, skip, limit, search)
+    return [
+        AdminListItemResponse(
+            id=item.id,
+            email=item.email,
+            is_active=item.is_active,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+        )
+        for item in admins
+    ]
+
+
+@admin_router.get("/admins/{admin_id}", response_model=AdminDetailResponse)
+async def get_admin_detail(
+    admin_id: int,
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    admin = await admin_service.get_admin_detail(db, admin_id)
+    return AdminDetailResponse(
+        id=admin.id,
+        email=admin.email,
+        role=admin.role.name if admin.role else "admin",
+        is_active=admin.is_active,
+        created_at=admin.created_at,
+        updated_at=admin.updated_at,
+    )
+
+
+@admin_router.post("/admins", response_model=AdminDetailResponse, status_code=status.HTTP_201_CREATED)
+async def create_admin(
+    payload: AdminCreateRequest,
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    admin = await admin_service.create_admin(db, payload.email, payload.password)
+    return AdminDetailResponse(
+        id=admin.id,
+        email=admin.email,
+        role="admin",
+        is_active=admin.is_active,
+        created_at=admin.created_at,
+        updated_at=admin.updated_at,
+    )
+
+
+@admin_router.patch("/admins/{admin_id}", response_model=AdminDetailResponse)
+async def update_admin(
+    admin_id: int,
+    payload: AdminUpdateRequest,
+    current_admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    admin = await admin_service.update_admin(
+        db=db,
+        admin_id=admin_id,
+        actor=current_admin,
+        email=payload.email,
+        new_password=payload.new_password,
+        is_active=payload.is_active,
+        current_admin_password=payload.current_admin_password,
+    )
+    return AdminDetailResponse(
+        id=admin.id,
+        email=admin.email,
+        role="admin",
+        is_active=admin.is_active,
+        created_at=admin.created_at,
+        updated_at=admin.updated_at,
+    )
+
+
+@admin_router.delete("/admins/{admin_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_admin(
+    admin_id: int,
+    payload: AdminDeleteRequest,
+    current_admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    await admin_service.delete_admin(
+        db=db,
+        admin_id=admin_id,
+        actor=current_admin,
+        current_admin_password=payload.current_admin_password,
+    )
 
 
 @admin_router.get("/users", response_model=list[UserAdminResponse])
@@ -303,17 +417,6 @@ async def update_user_status(
     db: AsyncSession = Depends(get_db),
 ):
     user = await admin_service.update_user_status(db, user_id, payload.is_active)
-    return map_user(user)
-
-
-@admin_router.patch("/users/{user_id}/role", response_model=UserAdminResponse)
-async def update_user_role(
-    user_id: int,
-    payload: UserRoleUpdate,
-    _: User = Depends(require_role("admin")),
-    db: AsyncSession = Depends(get_db),
-):
-    user = await admin_service.update_user_role(db, user_id, payload.role)
     return map_user(user)
 
 
