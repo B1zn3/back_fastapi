@@ -2,8 +2,10 @@ import uuid
 from datetime import datetime
 
 from fastapi import HTTPException, Request
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from src.services.email_service import email_service
+from src.services.verification_service import verification_service
 from src.core.config import settings
 from src.core.constants import RoleName, TokenType
 from src.core.exceptions import (
@@ -25,6 +27,8 @@ from src.schemas.auth_schema import (
     AuthMeResponse,
     CredentialsUpdateRequest,
     PasswordChangeRequest,
+    PasswordResetConfirmRequest,
+    PasswordResetRequest,
     TokenResponse,
     UserCreate,
     UserLogin,
@@ -34,7 +38,7 @@ from src.utils.logger import logger
 
 
 class AuthService:
-    async def register(self, db: AsyncSession, user_data: UserCreate):
+    async def start_registration(self, db: AsyncSession, user_data: UserCreate):
         normalized_email = user_data.email.strip().lower()
         existing = await authcrud.get_by_email(db, normalized_email)
         if existing:
@@ -48,38 +52,29 @@ class AuthService:
         if not role:
             raise InvalidCredentialsError("Роль по умолчанию не настроена")
 
-        hashed_password = HashService.get_password_hash(user_data.password)
+        if user_data.role == RoleName.COMPANY and not user_data.company_name:
+            raise InvalidCredentialsError("Название компании обязательно для регистрации")
 
-        if user_data.role == RoleName.APPLICANT:
-            applicant = await applicantcrud.create(db, {})
-            await db.flush()
-            applicant_id = applicant.id
-            company_id = None
-        else:
-            if not user_data.company_name:
-                raise InvalidCredentialsError("Название компании обязательно для регистрации")
-            company = await companycrud.create(db, {"name": user_data.company_name})
-            await db.flush()
-            company_id = company.id
-            applicant_id = None
-
-        user_dict = {
+        pending_data = {
             "email": normalized_email,
-            "password": hashed_password,
-            "role_id": role.id,
-            "is_active": True,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
-            "applicant_id": applicant_id,
-            "company_id": company_id,
+            "password_hash": HashService.get_password_hash(user_data.password),
+            "role": user_data.role,
+            "company_name": user_data.company_name,
         }
-        user = await authcrud.create(db, user_dict)
 
-        await db.commit()
-        await db.refresh(user)
+        code = await verification_service.create_signup_verification(
+            normalized_email,
+            pending_data,
+        )
 
-        logger.info(f"User registered: {user.email} (role={user_data.role})")
-        return user
+        await email_service.send_signup_code(normalized_email, code)
+
+        logger.info(f"Registration verification started for {normalized_email}")
+        return {
+            "message": "Код подтверждения отправлен на почту",
+            "verification_required": True,
+            "email": normalized_email,
+            }
 
     async def login(
         self,
@@ -241,6 +236,7 @@ class AuthService:
         payload: CredentialsUpdateRequest,
     ):
         user = await authcrud.get_by_id(db, user_id)
+
         if not user:
             raise BaseAppException(status_code=404, message="Пользователь не найден")
 
@@ -255,19 +251,58 @@ class AuthService:
                 normalized_email,
                 user.id,
             )
+
             if email_taken:
                 raise BaseAppException(status_code=409, message="Email уже используется")
 
             await authcrud.update_user_email(db, user, normalized_email)
 
         applicant = await authcrud.get_applicant_for_user(db, user.id)
+
         if not applicant:
             raise BaseAppException(status_code=404, message="Профиль соискателя не найден")
 
-        normalized_phone = payload.phone.strip() if payload.phone else None
-        await authcrud.update_applicant_phone(db, applicant, normalized_phone)
+        normalized_phone = payload.phone
+        
+        if normalized_phone and normalized_phone != applicant.phone:
+            phone_taken = await authcrud.is_phone_taken_by_other(
+                db,
+                normalized_phone,
+                applicant.id,
+            )
 
-        await authcrud.commit(db)
+            if phone_taken:
+                raise BaseAppException(
+                    status_code=409,
+                    message="Телефон уже используется другим аккаунтом",
+                )
+
+        try:
+            await authcrud.update_applicant_phone(db, applicant, normalized_phone)
+            await authcrud.commit(db)
+        except IntegrityError as e:
+            await db.rollback()
+
+            error_text = str(e.orig).lower()
+
+            if "applicants_phone_key" in error_text or "key (phone)" in error_text:
+                raise BaseAppException(
+                    status_code=409,
+                    message="Телефон уже используется другим аккаунтом",
+                )
+
+            if "users_email_key" in error_text or "key (email)" in error_text:
+                raise BaseAppException(
+                    status_code=409,
+                    message="Email уже используется другим аккаунтом",
+                )
+
+            logger.error(f"IntegrityError in update_credentials: {e}", exc_info=True)
+            raise BaseAppException(
+                status_code=400,
+                message="Некорректные контактные данные",
+            )
+
         await authcrud.refresh_user(db, user)
         await authcrud.refresh_applicant(db, applicant)
 
@@ -305,3 +340,197 @@ class AuthService:
         await authcrud.refresh_user(db, user)
 
         return {"message": "Пароль успешно изменён"}
+    
+    async def confirm_registration(
+        self,
+        db: AsyncSession,
+        email: str,
+        code: str,
+        request: Request,
+    ) -> TokenResponse:
+        pending_data = await verification_service.verify_signup_code(email, code)
+
+        normalized_email = pending_data["email"]
+
+        existing = await authcrud.get_by_email(db, normalized_email)
+        if existing:
+            await verification_service.clear_signup_state(normalized_email)
+            raise InvalidCredentialsError("Пользователь с таким email уже существует")
+
+        role_name = pending_data["role"]
+
+        if role_name == RoleName.APPLICANT:
+            role = await rolecrud.get_by_name(db, RoleName.APPLICANT)
+            applicant = await applicantcrud.create(db, {})
+            await db.flush()
+            applicant_id = applicant.id
+            company_id = None
+        else:
+            role = await rolecrud.get_by_name(db, RoleName.COMPANY)
+            company = await companycrud.create(db, {"name": pending_data["company_name"]})
+            await db.flush()
+            company_id = company.id
+            applicant_id = None
+
+        if not role:
+            raise InvalidCredentialsError("Роль не найдена")
+
+        user_dict = {
+            "email": normalized_email,
+            "password": pending_data["password_hash"],
+            "role_id": role.id,
+            "is_active": True,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+            "applicant_id": applicant_id,
+            "company_id": company_id,
+        }
+
+        user = await authcrud.create(db, user_dict)
+        await db.commit()
+        await db.refresh(user)
+
+        await verification_service.clear_signup_state(normalized_email)
+
+        login_payload = UserLogin(
+            email=normalized_email,
+            password="temporary-not-used",
+            role=role_name,
+        )
+
+        fingerprint = f"{request.headers.get('user-agent', '')}:{request.client.host}"
+        session_id = str(uuid.uuid4())
+
+        access_token = JWTToken.create_access_token({"sub": str(user.id)}, session_id)
+        refresh_token = JWTToken.create_refresh_token({"sub": str(user.id)}, session_id)
+        access_jti = JWTToken.get_jti(access_token)
+
+        try:
+            await session_manager.create_session(
+                user_id=str(user.id),
+                session_id=session_id,
+                refresh_token=refresh_token,
+                access_jti=access_jti,
+                fingerprint=fingerprint,
+            )
+            await fingerprint_manager.save_fingerprint(str(user.id), fingerprint)
+            await session_manager.enforce_max_sessions(
+                str(user.id),
+                settings.MAX_SESSIONS_PER_USER,
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to create session for user {user.id}: {e}",
+                exc_info=True,
+            )
+            raise HTTPException(status_code=500, detail="Failed to create session")
+
+        logger.info(f"User confirmed registration and logged in: {user.email} (id={user.id})")
+        return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+    async def request_password_reset(
+        self,
+        db: AsyncSession,
+        payload: PasswordResetRequest,
+        request: Request,
+    ):
+        client_ip = request.client.host
+        normalized_email = payload.email.strip().lower()
+
+        rate_key = f"password-reset-request:{normalized_email}:{client_ip}"
+        allowed = await rate_limiter.check_and_increment(
+            rate_key,
+            settings.LOGIN_RATE_LIMIT,
+            settings.LOGIN_RATE_WINDOW,
+        )
+        if not allowed:
+            raise RateLimitExceededError()
+
+        user = await authcrud.get_by_email(db, normalized_email)
+
+        # Не раскрываем, существует ли пользователь
+        if not user:
+            logger.info(f"Password reset requested for non-existing email: {normalized_email}")
+            return {"message": "Код отправлен на почту"}
+
+        if not user.is_active:
+            logger.info(f"Password reset requested for inactive user: {normalized_email}")
+            return {"message": "Код отправлен на почту"}
+
+        code = await verification_service.create_password_reset_verification(normalized_email)
+        await email_service.send_password_reset_code(normalized_email, code)
+
+        logger.info(f"Password reset code sent to {normalized_email}")
+        return {"message": "Код отправлен на почту"}
+
+    async def confirm_password_reset(
+        self,
+        db: AsyncSession,
+        payload: PasswordResetConfirmRequest,
+    ):
+        normalized_email = payload.email.strip().lower()
+
+        user = await authcrud.get_by_email(db, normalized_email)
+        if not user:
+            raise BaseAppException(status_code=400, message="Неверный код или email")
+
+        await verification_service.verify_password_reset_code(normalized_email, payload.code)
+
+        if HashService.verify_password(payload.new_password, user.password):
+            raise BaseAppException(
+                status_code=400,
+                message="Новый пароль должен отличаться от текущего",
+            )
+        new_password_hash = HashService.get_password_hash(payload.new_password)
+        await authcrud.update_user_password(db, user, new_password_hash)
+
+        await self.logout_all(user.id)
+
+        await authcrud.commit(db)
+        await authcrud.refresh_user(db, user)
+        await verification_service.clear_password_reset_state(normalized_email)
+
+        logger.info(f"Password reset completed for user {user.id}")
+        return {"message": "Пароль успешно изменён"}
+    
+    async def resend_registration_code(
+        self,
+        db: AsyncSession,
+        email: str,
+        request: Request,
+    ):
+        client_ip = request.client.host
+        normalized_email = email.strip().lower()
+
+        rate_key = f"register-resend:{normalized_email}:{client_ip}"
+        allowed = await rate_limiter.check_and_increment(
+            rate_key,
+            settings.LOGIN_RATE_LIMIT,
+            settings.LOGIN_RATE_WINDOW,
+        )
+        if not allowed:
+            raise RateLimitExceededError()
+
+        existing = await authcrud.get_by_email(db, normalized_email)
+        if existing:
+            raise InvalidCredentialsError("Пользователь с таким email уже существует")
+
+        pending_data = await verification_service.get_signup_pending(normalized_email)
+        if not pending_data:
+            raise BaseAppException(
+                status_code=404,
+                message="Регистрация не найдена или истекла. Заполните форму заново.",
+            )
+
+        code = await verification_service.create_signup_verification(
+            normalized_email,
+            pending_data,
+        )
+
+        await email_service.send_signup_code(normalized_email, code)
+
+        logger.info(f"Registration code resent for {normalized_email}")
+        return {
+            "message": "Код подтверждения отправлен повторно",
+            "verification_required": True,
+            "email": normalized_email,
+        }

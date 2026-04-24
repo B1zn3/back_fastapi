@@ -99,5 +99,19 @@ class AuthCrud(BaseCrud):
     async def refresh_applicant(self, db: AsyncSession, applicant: Applicant):
         await db.refresh(applicant)
 
+    async def is_phone_taken_by_other(
+        self,
+        db: AsyncSession,
+        phone: str,
+        applicant_id: int,
+    ) -> bool:
+        stmt = select(Applicant).where(
+            Applicant.phone == phone,
+            Applicant.id != applicant_id,
+        )
+        result = await db.execute(stmt)
+        existing = result.scalar_one_or_none()
+
+        return existing is not None
 
 authcrud = AuthCrud()

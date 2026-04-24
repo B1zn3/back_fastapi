@@ -4,13 +4,17 @@ from src.cruds.company_cruds.vacancy_crud import vacancycrud
 from src.cruds.applicant_cruds.resume_crud import resumecrud
 from src.schemas.application_schema import ApplicationCreate
 from src.core.exceptions import (
-    VacancyNotFoundError, ResumeNotFoundError, DuplicateApplicationError,
-    AccessDeniedError, VacancyInactiveError, ApplicationNotFoundError
+    VacancyNotFoundError,
+    ResumeNotFoundError,
+    DuplicateApplicationError,
+    AccessDeniedError,
+    ApplicationNotFoundError,
 )
 from src.redis.cache_service import cache_service
 from src.redis.lock_service import lock_service
 from src.core.constants import ApplicationStatus
 from src.utils.logger import logger
+
 
 class ApplicationService:
     def __init__(self):
@@ -21,12 +25,10 @@ class ApplicationService:
     async def _invalidate_vacancy_cache(self, vacancy_id: int):
         await cache_service.delete(f"vacancy:applications:{vacancy_id}")
 
-    async def _get_vacancy_or_raise(self, db: AsyncSession, vacancy_id: int, check_active: bool = True):
+    async def _get_vacancy_or_raise(self, db: AsyncSession, vacancy_id: int):
         vacancy = await self.vacancycrud.get(db, vacancy_id)
         if not vacancy:
             raise VacancyNotFoundError()
-        if check_active and not vacancy.is_active:
-            raise VacancyInactiveError()
         return vacancy
 
     async def _get_resume_or_raise(self, db: AsyncSession, resume_id: int, applicant_id: int):
@@ -37,33 +39,53 @@ class ApplicationService:
             raise AccessDeniedError("Резюме не принадлежит текущему пользователю")
         return resume
 
+    async def _get_default_resume_or_raise(self, db: AsyncSession, applicant_id: int):
+        resumes = await self.resumecrud.get_by_applicant(db, applicant_id)
+        if not resumes:
+            raise ResumeNotFoundError("У вас нет резюме для отклика")
+        return resumes[0]
+
     async def apply_to_vacancy(
         self,
         db: AsyncSession,
         applicant_id: int,
         application_data: ApplicationCreate
     ):
-        await self._get_vacancy_or_raise(db, application_data.vacancy_id, check_active=True)
-        await self._get_resume_or_raise(db, application_data.resume_id, applicant_id)
+        await self._get_vacancy_or_raise(db, application_data.vacancy_id)
 
-        lock_key = f"application_lock:{application_data.vacancy_id}:{application_data.resume_id}"
+        if application_data.resume_id is not None:
+            resume = await self._get_resume_or_raise(db, application_data.resume_id, applicant_id)
+        else:
+            resume = await self._get_default_resume_or_raise(db, applicant_id)
+
+        lock_key = f"application_lock:{application_data.vacancy_id}:{resume.id}"
         if not await lock_service.acquire_lock(lock_key):
             raise DuplicateApplicationError("Обработка отклика уже выполняется")
 
         try:
             existing = await self.applicationcrud.get_by_vacancy_and_resume(
-                db, application_data.vacancy_id, application_data.resume_id
+                db,
+                application_data.vacancy_id,
+                resume.id,
             )
             if existing:
-                raise DuplicateApplicationError()
+                raise DuplicateApplicationError("Вы уже откликались на эту вакансию этим резюме")
 
-            app_dict = application_data.model_dump()
-            app_dict["status"] = ApplicationStatus.PENDING
+            app_dict = {
+                "vacancy_id": application_data.vacancy_id,
+                "resume_id": resume.id,
+                "status": ApplicationStatus.PENDING,
+            }
+
             application = await self.applicationcrud.create(db, app_dict)
 
             await self._invalidate_vacancy_cache(application_data.vacancy_id)
             await db.commit()
-            logger.info(f"Applicant {applicant_id} applied to vacancy {application_data.vacancy_id}")
+            await db.refresh(application)
+
+            logger.info(
+                f"Applicant {applicant_id} applied to vacancy {application_data.vacancy_id} with resume {resume.id}"
+            )
             return application
         except Exception:
             await db.rollback()
@@ -82,12 +104,17 @@ class ApplicationService:
         resume_ids = [r.id for r in resumes]
         if not resume_ids:
             return []
+
         applications = []
         for rid in resume_ids:
             apps = await self.applicationcrud.get_by_resume(db, rid)
             applications.extend(apps)
-        applications.sort(key=lambda a: a.created_at, reverse=True)
-        return applications[skip:skip+limit]
+
+        applications.sort(
+            key=lambda a: getattr(a, "updated_at", None) or getattr(a, "created_at", None) or 0,
+            reverse=True,
+        )
+        return applications[skip:skip + limit]
 
     async def get_vacancy_applications(
         self,
@@ -97,11 +124,12 @@ class ApplicationService:
         skip: int = 0,
         limit: int = 10
     ):
-        vacancy = await self._get_vacancy_or_raise(db, vacancy_id, check_active=False)
+        vacancy = await self._get_vacancy_or_raise(db, vacancy_id)
         if vacancy.company_id != company_id:
             raise AccessDeniedError("Вакансия не принадлежит вашей компании")
+
         applications = await self.applicationcrud.get_by_vacancy(db, vacancy_id)
-        return applications[skip:skip+limit]
+        return applications[skip:skip + limit]
 
     async def update_application_status(
         self,
@@ -111,7 +139,7 @@ class ApplicationService:
         company_id: int,
         status: ApplicationStatus
     ):
-        vacancy = await self._get_vacancy_or_raise(db, vacancy_id, check_active=False)
+        vacancy = await self._get_vacancy_or_raise(db, vacancy_id)
         if vacancy.company_id != company_id:
             raise AccessDeniedError("Вакансия не принадлежит вашей компании")
 
@@ -123,6 +151,8 @@ class ApplicationService:
         await db.flush()
         await self._invalidate_vacancy_cache(vacancy_id)
         await db.commit()
+        await db.refresh(application)
         return application
+
 
 application_service = ApplicationService()

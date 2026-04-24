@@ -1,5 +1,4 @@
-from alembic.util import status
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 from src.deps.db_deps import get_db
@@ -218,18 +217,23 @@ async def delete_education(
 @applicant_router.post("/me/applications", response_model=ApplicationResponse, status_code=201)
 async def apply_to_vacancy(
     application_data: ApplicationCreate,
-    applicant = Depends(get_current_applicant),
-    db: AsyncSession = Depends(get_db)
+    applicant=Depends(get_current_applicant),
+    db: AsyncSession = Depends(get_db),
 ):
     try:
         return await application_service.apply_to_vacancy(db, applicant.id, application_data)
     except BaseAppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
+
 @applicant_router.get("/me/applications", response_model=list[ApplicationResponse])
 async def get_my_applications(
     pagination: dict = Depends(pagination_params),
-    applicant = Depends(get_current_applicant),
-    db: AsyncSession = Depends(get_db)
+    applicant=Depends(get_current_applicant),
+    db: AsyncSession = Depends(get_db),
 ):
-    return await application_service.get_applicant_applications(db, applicant.id, **pagination)
+    return await application_service.get_applicant_applications(
+        db,
+        applicant.id,
+        **pagination,
+    )

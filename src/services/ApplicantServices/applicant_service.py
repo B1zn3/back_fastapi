@@ -1,5 +1,6 @@
 from datetime import datetime
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -63,23 +64,92 @@ class ApplicantService:
 
     async def update_profile(self, db: AsyncSession, user_id: int, update_data: ApplicantUpdate) -> Applicant:
         applicant = await self._get_applicant_or_raise(db, user_id)
+
         try:
-            for field, value in update_data.model_dump(exclude_unset=True, exclude={"city_name"}).items():
+            update_payload = update_data.model_dump(exclude_unset=True, exclude={"city_name"})
+
+            if "phone" in update_payload:
+                raw_phone = update_payload.get("phone")
+
+                if raw_phone:
+                    normalized_phone = (
+                        str(raw_phone)
+                        .strip()
+                        .replace(" ", "")
+                        .replace("-", "")
+                        .replace("(", "")
+                        .replace(")", "")
+                    )
+
+                    if normalized_phone != applicant.phone:
+                        existing_phone = await db.execute(
+                            select(Applicant.id).where(
+                                Applicant.phone == normalized_phone,
+                                Applicant.id != applicant.id,
+                            )
+                        )
+
+                        if existing_phone.scalar_one_or_none():
+                            raise HTTPException(
+                                status_code=409,
+                                detail="Телефон уже используется другим аккаунтом.",
+                            )
+
+                    update_payload["phone"] = normalized_phone
+                else:
+                    update_payload["phone"] = None
+
+            for field, value in update_payload.items():
                 setattr(applicant, field, value)
+
             if update_data.city_name:
                 city = await self.citycrud.get_or_create(db, update_data.city_name)
                 applicant.city_id = city.id
+
             await db.commit()
             await db.refresh(applicant, ["city"])
+
             return applicant
-        except (IntegrityError, SQLAlchemyError) as e:
+
+        except HTTPException:
+            await db.rollback()
+            raise
+
+        except IntegrityError as e:
+            await db.rollback()
+
+            error_text = str(e.orig).lower()
+
+            if "applicants_phone_key" in error_text or "key (phone)" in error_text:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Телефон уже используется другим аккаунтом.",
+                )
+
+            logger.error(f"DB integrity error in update_profile: {e}")
+
+            raise HTTPException(
+                status_code=400,
+                detail="Некорректные данные профиля.",
+            )
+
+        except SQLAlchemyError as e:
             await db.rollback()
             logger.error(f"DB error in update_profile: {e}")
-            raise HTTPException(status_code=400, detail="Data error")
+
+            raise HTTPException(
+                status_code=500,
+                detail="Ошибка базы данных.",
+            )
+
         except Exception as e:
             await db.rollback()
-            logger.error(f"Unexpected error: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail="Internal error")
+            logger.error(f"Unexpected error in update_profile: {e}", exc_info=True)
+
+            raise HTTPException(
+                status_code=500,
+                detail="Внутренняя ошибка сервера.",
+        )
 
     # ---------- Резюме ----------
     async def create_resume(self, db: AsyncSession, applicant_id: int, data: ResumeCreate) -> Resume:
@@ -211,41 +281,43 @@ class ApplicantService:
 
     # ---------- Образование ----------
     async def add_education(self, db: AsyncSession, applicant_id: int, data: EducationCreate) -> Education:
-        applicant = await self._get_applicant_or_raise(db, applicant_id)  
+        applicant = await self._get_applicant_or_raise(db, applicant_id)
+
         try:
-            institution = await educationalinstitutioncrud.get(db, data.institution_id)
+            institution = await self.educationalinstitutioncrud.get(db, data.institution_id)
             if not institution:
                 raise HTTPException(status_code=400, detail="Учебное заведение не найдено")
 
             edu_dict = data.model_dump()
-            edu_dict["applicant_id"] = applicant.id 
+            edu_dict["applicant_id"] = applicant.id
             edu_dict["institution_id"] = institution.id
+
             edu = await self.educationcrud.create(db, edu_dict)
+
             await db.commit()
             await db.refresh(edu, ["institution"])
+
             return edu
-        except IntegrityError:
-            await db.rollback()
-            raise HTTPException(status_code=400, detail="Некорректные данные")
-        except HTTPException:
-            await db.rollback()
-            raise
-        except Exception as e:
-            await db.rollback()
-            logger.error(f"Error in add_education: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail="Внутренняя ошибка")
 
         except IntegrityError as e:
             await db.rollback()
-            logger.error(f"❌ IntegrityError: {e}")
-            raise HTTPException(status_code=400, detail="Нарушение целостности данных (возможно, дубликат)")
+            logger.error(f"IntegrityError in add_education: {e}")
+            raise HTTPException(
+                status_code=400,
+                detail="Некорректные данные образования",
+            )
+
         except HTTPException:
             await db.rollback()
             raise
+
         except Exception as e:
             await db.rollback()
-            logger.error(f"❌ Непредвиденная ошибка: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+            logger.error(f"Error in add_education: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail="Внутренняя ошибка",
+            )
 
     async def update_education(self, db: AsyncSession, edu_id: int, applicant_id: int, data: EducationUpdate) -> Education:
         edu = await self.educationcrud.get_with_institution(db, edu_id)

@@ -45,3 +45,25 @@ class CredentialsUpdateRequest(BaseModel):
 class PasswordChangeRequest(BaseModel):
     current_password: str = Field(..., min_length=8)
     new_password: str = Field(..., min_length=8)
+
+class RegisterStartResponse(BaseModel):
+    message: str
+    verification_required: bool = True
+    email: EmailStr
+
+
+class RegisterConfirmRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(..., min_length=4, max_length=10)
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(..., min_length=4, max_length=10)
+    new_password: str = Field(..., min_length=8)
+
+class ResendCodeRequest(BaseModel):
+    email: EmailStr
