@@ -15,7 +15,7 @@ from src.schemas.applicant_schemas.work_experience_schema import (
 from src.schemas.applicant_schemas.education_schema import (
     EducationCreate, EducationUpdate, EducationResponse
 )
-from src.schemas.application_schema import ApplicationCreate, ApplicationResponse
+from src.schemas.application_schema import ApplicationCreate, ApplicationResponse, ApplicationStateResponse
 from src.models.model import Applicant, User
 from src.core.exceptions import BaseAppException
 
@@ -214,6 +214,7 @@ async def delete_education(
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
 # ---------- Отклики на вакансии ----------
+# ---------- Отклики на вакансии ----------
 @applicant_router.post("/me/applications", response_model=ApplicationResponse, status_code=201)
 async def apply_to_vacancy(
     application_data: ApplicationCreate,
@@ -222,6 +223,25 @@ async def apply_to_vacancy(
 ):
     try:
         return await application_service.apply_to_vacancy(db, applicant.id, application_data)
+    except BaseAppException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
+@applicant_router.get(
+    "/me/applications/vacancies/{vacancy_id}/state",
+    response_model=ApplicationStateResponse,
+)
+async def get_my_application_state(
+    vacancy_id: int,
+    applicant=Depends(get_current_applicant),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await application_service.get_applicant_application_state(
+            db,
+            applicant.id,
+            vacancy_id,
+        )
     except BaseAppException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Table, Text
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Table, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -287,9 +287,20 @@ class Education(Base):
 class Application(Base):
     __tablename__ = "applications"
 
-    vacancy_id: Mapped[int] = mapped_column(Integer, ForeignKey("vacancies.id"), primary_key=True)
-    resume_id: Mapped[int] = mapped_column(Integer, ForeignKey("resumes.id"), primary_key=True)
+    __table_args__ = (
+        UniqueConstraint("vacancy_id", "resume_id", name="uq_applications_vacancy_resume"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+
+    vacancy_id: Mapped[int] = mapped_column(Integer, ForeignKey("vacancies.id"), nullable=False, index=True)
+    resume_id: Mapped[int] = mapped_column(Integer, ForeignKey("resumes.id"), nullable=False, index=True)
+
     status: Mapped[str] = mapped_column(String, nullable=False)
+    cover_letter: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     vacancy: Mapped["Vacancy"] = relationship(back_populates="applications")
     resume: Mapped["Resume"] = relationship(back_populates="applications")

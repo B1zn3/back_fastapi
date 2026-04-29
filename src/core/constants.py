@@ -10,7 +10,5 @@ class TokenType(str, Enum):
 
 class ApplicationStatus(str, Enum):
     PENDING = "pending"
-    VIEWED = "viewed"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
-    CANCELLED = "cancelled"
