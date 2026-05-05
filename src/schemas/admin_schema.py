@@ -42,10 +42,6 @@ class UserStatusUpdate(BaseModel):
     is_active: bool
 
 
-class UserRoleUpdate(BaseModel):
-    role: str = Field(..., min_length=1, max_length=50)
-
-
 class CompanyAdminListItem(BaseModel):
     id: int
     name: str
@@ -56,6 +52,8 @@ class CompanyAdminListItem(BaseModel):
     user_id: Optional[int] = None
     user_email: Optional[str] = None
     is_active: bool = True
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class CompanyAdminDetailResponse(CompanyAdminListItem):
@@ -68,6 +66,7 @@ class CompanyAdminDetailResponse(CompanyAdminListItem):
 
 class ApplicantResumeAdminItem(BaseModel):
     id: int
+    profession_id: Optional[int] = None
     profession_name: Optional[str] = None
     skills: list[str] = Field(default_factory=list)
     work_experiences_count: int = 0
@@ -83,6 +82,17 @@ class ApplicantEducationAdminItem(BaseModel):
     end_date: Optional[date] = None
 
 
+class ApplicantWorkExperienceAdminItem(BaseModel):
+    id: int
+    resume_id: int
+    resume_profession: Optional[str] = None
+    company_name: str
+    position: str
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    description: Optional[str] = None
+
+
 class ApplicantAdminListItem(BaseModel):
     id: int
     full_name: str
@@ -92,6 +102,8 @@ class ApplicantAdminListItem(BaseModel):
     resumes_count: int = 0
     educations_count: int = 0
     is_active: bool = True
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class ApplicantAdminDetailResponse(ApplicantAdminListItem):
@@ -100,7 +112,44 @@ class ApplicantAdminDetailResponse(ApplicantAdminListItem):
     photo: Optional[str] = None
     resumes: list[ApplicantResumeAdminItem] = Field(default_factory=list)
     educations: list[ApplicantEducationAdminItem] = Field(default_factory=list)
+    work_experiences: list[ApplicantWorkExperienceAdminItem] = Field(default_factory=list)
     applications_count: int = 0
+
+
+class VacancySkillAdminItem(BaseModel):
+    id: int
+    name: str
+
+
+class VacancyAdminListItem(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+
+    company_id: Optional[int] = None
+    city_id: Optional[int] = None
+    profession_id: Optional[int] = None
+    status_id: Optional[int] = None
+
+    company_name: Optional[str] = None
+    city_name: Optional[str] = None
+    profession_name: Optional[str] = None
+    status_name: Optional[str] = None
+
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    currency: Optional[str] = None
+
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    skills: list[VacancySkillAdminItem] = Field(default_factory=list)
+
+
+class VacancyAdminDetailResponse(VacancyAdminListItem):
+    employment_type_name: Optional[str] = None
+    work_schedule_name: Optional[str] = None
+    experience_name: Optional[str] = None
 
 
 class VacancyModerationUpdate(BaseModel):
@@ -121,6 +170,7 @@ class ApplicationAdminListItem(BaseModel):
     vacancy_title: Optional[str] = None
     company_name: Optional[str] = None
     applicant_name: Optional[str] = None
+    applicant_id: Optional[int] = None
     resume_profession: Optional[str] = None
 
 
@@ -128,6 +178,7 @@ class ApplicationAdminDetailResponse(ApplicationAdminListItem):
     city_name: Optional[str] = None
     salary_min: Optional[int] = None
     salary_max: Optional[int] = None
+    cover_letter: Optional[str] = None
 
 
 class ApplicationAdminUpdate(BaseModel):
@@ -164,15 +215,36 @@ class DashboardRecentApplicationItem(BaseModel):
     created_at: Optional[datetime] = None
 
 
+class DashboardRegistrationPoint(BaseModel):
+    label: str
+    date: str
+    users: int
+    applicants: int
+    companies: int
+    admins: int
+
+
+class DashboardMetricItem(BaseModel):
+    key: str
+    label: str
+    value: int
+
+
 class DashboardResponse(BaseModel):
     users_total: int
     users_active: int
+    users_blocked: int
     companies_total: int
     applicants_total: int
     vacancies_total: int
     applications_total: int
+    admins_total: int
     vacancies_by_status: dict[str, int]
     applications_by_status: dict[str, int]
+    users_by_role: dict[str, int]
+    registrations: list[DashboardRegistrationPoint] = Field(default_factory=list)
+    top_cities: list[DashboardMetricItem] = Field(default_factory=list)
+    top_professions: list[DashboardMetricItem] = Field(default_factory=list)
     recent_users: list[DashboardRecentUserItem] = Field(default_factory=list)
     recent_vacancies: list[DashboardRecentVacancyItem] = Field(default_factory=list)
     recent_applications: list[DashboardRecentApplicationItem] = Field(default_factory=list)
@@ -206,3 +278,4 @@ class AdminListItemResponse(BaseModel):
 
 class AdminDetailResponse(AdminListItemResponse):
     role: str
+    password_set: bool = True

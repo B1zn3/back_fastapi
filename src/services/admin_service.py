@@ -1,8 +1,8 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, String, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -53,6 +53,29 @@ class AdminService:
         if not model:
             raise HTTPException(status_code=404, detail="Справочник не найден")
         return model
+
+    @staticmethod
+    def _ensure_root_admin(actor: User):
+        if actor.id != 1:
+            raise HTTPException(
+                status_code=403,
+                detail="Создавать, редактировать и удалять администраторов может только главный администратор",
+            )
+
+    @staticmethod
+    def _period_start(period: str) -> Optional[datetime]:
+        now = datetime.utcnow()
+
+        if period == "7d":
+            return now - timedelta(days=7)
+        if period == "30d":
+            return now - timedelta(days=30)
+        if period == "90d":
+            return now - timedelta(days=90)
+        if period in {"365d", "year"}:
+            return now - timedelta(days=365)
+
+        return None
 
     @staticmethod
     def _full_name(applicant: Optional[Applicant]) -> str:
@@ -163,9 +186,27 @@ class AdminService:
 
         return {key: value for key, value in counts.items() if value > 0}
 
-    async def list_catalog_items(self, db: AsyncSession, catalog_name: str, skip: int, limit: int):
+    async def list_catalog_items(
+        self,
+        db: AsyncSession,
+        catalog_name: str,
+        skip: int,
+        limit: int,
+        search: Optional[str] = None,
+    ):
         model = self._get_catalog_model(catalog_name)
-        result = await db.execute(select(model).order_by(model.id).offset(skip).limit(limit))
+        stmt = select(model).order_by(model.id)
+
+        if search:
+            value = f"%{search.lower()}%"
+            stmt = stmt.where(
+                or_(
+                    func.lower(model.name).like(value),
+                    func.cast(model.id, String).like(value),
+                )
+            )
+
+        result = await db.execute(stmt.offset(skip).limit(limit))
         return result.scalars().all()
 
     async def create_catalog_item(self, db: AsyncSession, catalog_name: str, name: str):
@@ -216,16 +257,24 @@ class AdminService:
         await db.delete(instance)
         await db.commit()
 
-    async def get_dashboard(self, db: AsyncSession):
+    async def get_dashboard(self, db: AsyncSession, period: str = "30d"):
         users_total = await self._scalar_count(db, select(func.count()).select_from(User))
         users_active = await self._scalar_count(
             db,
             select(func.count()).select_from(User).where(User.is_active.is_(True)),
         )
+        users_blocked = await self._scalar_count(
+            db,
+            select(func.count()).select_from(User).where(User.is_active.is_(False)),
+        )
         companies_total = await self._scalar_count(db, select(func.count()).select_from(Company))
         applicants_total = await self._scalar_count(db, select(func.count()).select_from(Applicant))
         vacancies_total = await self._scalar_count(db, select(func.count()).select_from(Vacancy))
         applications_total = await self._scalar_count(db, select(func.count()).select_from(Application))
+        admins_total = await self._scalar_count(
+            db,
+            select(func.count(User.id)).select_from(User).join(Role, User.role_id == Role.id).where(Role.name == "admin"),
+        )
 
         status_rows = await db.execute(
             select(Status.name, func.count(Vacancy.id))
@@ -242,6 +291,82 @@ class AdminService:
             .order_by(Application.status)
         )
         applications_by_status = {name: int(count or 0) for name, count in application_rows.all()}
+
+        role_rows = await db.execute(
+            select(Role.name, func.count(User.id))
+            .select_from(Role)
+            .outerjoin(User, User.role_id == Role.id)
+            .group_by(Role.name)
+            .order_by(Role.name)
+        )
+        users_by_role = {name: int(count or 0) for name, count in role_rows.all()}
+
+        start = self._period_start(period)
+        registrations_stmt = (
+            select(User)
+            .options(joinedload(User.role))
+            .order_by(User.created_at)
+        )
+
+        if start:
+            registrations_stmt = registrations_stmt.where(User.created_at >= start)
+
+        registrations_result = await db.execute(registrations_stmt)
+        registration_users = registrations_result.scalars().all()
+
+        registration_map: dict[str, dict[str, Any]] = {}
+
+        for user in registration_users:
+            key = user.created_at.date().isoformat()
+            if key not in registration_map:
+                registration_map[key] = {
+                    "label": user.created_at.strftime("%d.%m"),
+                    "date": key,
+                    "users": 0,
+                    "applicants": 0,
+                    "companies": 0,
+                    "admins": 0,
+                }
+
+            registration_map[key]["users"] += 1
+
+            role_name = user.role.name if user.role else ""
+            if role_name == "applicant":
+                registration_map[key]["applicants"] += 1
+            elif role_name == "company":
+                registration_map[key]["companies"] += 1
+            elif role_name == "admin":
+                registration_map[key]["admins"] += 1
+
+        registrations = list(registration_map.values())
+
+        city_rows = await db.execute(
+            select(City.name, func.count(Applicant.id))
+            .select_from(City)
+            .outerjoin(Applicant, Applicant.city_id == City.id)
+            .group_by(City.name)
+            .order_by(func.count(Applicant.id).desc())
+            .limit(8)
+        )
+        top_cities = [
+            {"key": name, "label": name, "value": int(count or 0)}
+            for name, count in city_rows.all()
+            if int(count or 0) > 0
+        ]
+
+        profession_rows = await db.execute(
+            select(Profession.name, func.count(Vacancy.id))
+            .select_from(Profession)
+            .outerjoin(Vacancy, Vacancy.profession_id == Profession.id)
+            .group_by(Profession.name)
+            .order_by(func.count(Vacancy.id).desc())
+            .limit(8)
+        )
+        top_professions = [
+            {"key": name, "label": name, "value": int(count or 0)}
+            for name, count in profession_rows.all()
+            if int(count or 0) > 0
+        ]
 
         recent_users_result = await db.execute(
             select(User)
@@ -263,19 +388,25 @@ class AdminService:
                 joinedload(Application.vacancy).joinedload(Vacancy.company),
                 joinedload(Application.resume).joinedload(Resume.profession),
             )
-            .order_by(Application.vacancy_id.desc(), Application.resume_id.desc())
+            .order_by(Application.created_at.desc())
             .limit(5)
         )
 
         return {
             "users_total": users_total,
             "users_active": users_active,
+            "users_blocked": users_blocked,
             "companies_total": companies_total,
             "applicants_total": applicants_total,
             "vacancies_total": vacancies_total,
             "applications_total": applications_total,
+            "admins_total": admins_total,
             "vacancies_by_status": vacancies_by_status,
             "applications_by_status": applications_by_status,
+            "users_by_role": users_by_role,
+            "registrations": registrations,
+            "top_cities": top_cities,
+            "top_professions": top_professions,
             "recent_users": recent_users_result.scalars().all(),
             "recent_vacancies": recent_vacancies_result.scalars().all(),
             "recent_applications": recent_applications_result.scalars().all(),
@@ -299,7 +430,13 @@ class AdminService:
             stmt = stmt.where(User.is_active == is_active)
 
         if search:
-            stmt = stmt.where(func.lower(User.email).like(f"%{search.lower()}%"))
+            search_value = f"%{search.lower()}%"
+            stmt = stmt.where(
+                or_(
+                    func.lower(User.email).like(search_value),
+                    func.cast(User.id, String).like(search_value),
+                )
+            )
 
         result = await db.execute(stmt.offset(skip).limit(limit))
         return result.scalars().all()
@@ -330,6 +467,9 @@ class AdminService:
         if not user:
             raise HTTPException(status_code=404, detail="Пользователь не найден")
 
+        if user.id == 1 and is_active is False:
+            raise HTTPException(status_code=400, detail="Главного администратора нельзя заблокировать")
+
         user.is_active = is_active
         user.updated_at = datetime.utcnow()
 
@@ -344,6 +484,8 @@ class AdminService:
         limit: int,
         search: Optional[str] = None,
         is_active: Optional[bool] = None,
+        city: Optional[str] = None,
+        company_type: Optional[str] = None,
     ):
         stmt = (
             select(Company)
@@ -357,7 +499,20 @@ class AdminService:
         )
 
         if search:
-            stmt = stmt.where(func.lower(Company.name).like(f"%{search.lower()}%"))
+            search_value = f"%{search.lower()}%"
+            stmt = stmt.where(
+                or_(
+                    func.lower(Company.name).like(search_value),
+                    func.lower(func.coalesce(Company.website, "")).like(search_value),
+                    func.cast(Company.id, String).like(search_value),
+                )
+            )
+
+        if city:
+            stmt = stmt.join(Company.cities).where(func.lower(City.name) == city.lower())
+
+        if company_type:
+            stmt = stmt.join(Company.company_type).where(func.lower(CompanyType.name) == company_type.lower())
 
         if is_active is not None:
             stmt = stmt.join(Company.user, isouter=True).where(
@@ -414,6 +569,8 @@ class AdminService:
         limit: int,
         search: Optional[str] = None,
         is_active: Optional[bool] = None,
+        city: Optional[str] = None,
+        has_resumes: Optional[bool] = None,
     ):
         stmt = (
             select(Applicant)
@@ -432,9 +589,23 @@ class AdminService:
                 or_(
                     func.lower(func.coalesce(Applicant.first_name, "")).like(search_value),
                     func.lower(func.coalesce(Applicant.last_name, "")).like(search_value),
+                    func.lower(func.coalesce(Applicant.middle_name, "")).like(search_value),
                     func.lower(func.coalesce(Applicant.phone, "")).like(search_value),
+                    func.cast(Applicant.id, String).like(search_value),
                 )
             )
+
+        if city:
+            stmt = stmt.join(Applicant.city).where(func.lower(City.name) == city.lower())
+
+        if has_resumes is not None:
+            resumes_count = (
+                select(func.count(Resume.id))
+                .where(Resume.applicant_id == Applicant.id)
+                .correlate(Applicant)
+                .scalar_subquery()
+            )
+            stmt = stmt.where(resumes_count > 0 if has_resumes else resumes_count == 0)
 
         if is_active is not None:
             stmt = stmt.join(Applicant.user, isouter=True).where(
@@ -515,7 +686,16 @@ class AdminService:
         )
 
         if search:
-            stmt = stmt.where(func.lower(Vacancy.title).like(f"%{search.lower()}%"))
+            value = f"%{search.lower()}%"
+            stmt = stmt.join(Vacancy.company).where(
+                or_(
+                    func.lower(Vacancy.title).like(value),
+                    func.lower(Vacancy.description).like(value),
+                    func.lower(Company.name).like(value),
+                    func.cast(Vacancy.id, String).like(value),
+                )
+            )
+
         if status_id:
             stmt = stmt.where(Vacancy.status_id == status_id)
         if city_id:
@@ -526,7 +706,7 @@ class AdminService:
             stmt = stmt.where(Vacancy.company_id == company_id)
 
         result = await db.execute(stmt.offset(skip).limit(limit))
-        return result.scalars().all()
+        return result.scalars().unique().all()
 
     async def get_vacancy(self, db: AsyncSession, vacancy_id: int):
         stmt = (
@@ -562,6 +742,7 @@ class AdminService:
             raise HTTPException(status_code=404, detail="Статус не найден")
 
         vacancy.status_id = status_id
+        vacancy.updated_at = datetime.utcnow()
         await db.commit()
 
         return await self.get_vacancy(db, vacancy_id)
@@ -579,6 +760,7 @@ class AdminService:
 
         for vacancy in vacancies:
             vacancy.status_id = status_id
+            vacancy.updated_at = datetime.utcnow()
 
         await db.commit()
         return vacancies
@@ -612,7 +794,7 @@ class AdminService:
                 joinedload(Application.resume).joinedload(Resume.profession),
                 joinedload(Application.resume).joinedload(Resume.applicant),
             )
-            .order_by(Vacancy.created_at.desc(), Application.resume_id.desc())
+            .order_by(Application.created_at.desc())
         )
 
         if status_filter:
@@ -653,12 +835,18 @@ class AdminService:
         resume_id: int,
         status_value: str,
     ):
-        application = await db.get(Application, {"vacancy_id": vacancy_id, "resume_id": resume_id})
+        stmt = select(Application).where(
+            Application.vacancy_id == vacancy_id,
+            Application.resume_id == resume_id,
+        )
+        result = await db.execute(stmt)
+        application = result.scalar_one_or_none()
 
         if not application:
             raise HTTPException(status_code=404, detail="Отклик не найден")
 
         application.status = status_value.strip()
+        application.updated_at = datetime.utcnow()
         await db.commit()
 
         return await self.get_application_detail(db, vacancy_id, resume_id)
@@ -669,6 +857,7 @@ class AdminService:
         skip: int,
         limit: int,
         search: Optional[str] = None,
+        is_active: Optional[bool] = None,
     ):
         stmt = (
             select(User)
@@ -679,7 +868,16 @@ class AdminService:
         )
 
         if search:
-            stmt = stmt.where(func.lower(User.email).like(f"%{search.lower()}%"))
+            value = f"%{search.lower()}%"
+            stmt = stmt.where(
+                or_(
+                    func.lower(User.email).like(value),
+                    func.cast(User.id, String).like(value),
+                )
+            )
+
+        if is_active is not None:
+            stmt = stmt.where(User.is_active == is_active)
 
         result = await db.execute(stmt.offset(skip).limit(limit))
         return result.scalars().all()
@@ -699,7 +897,9 @@ class AdminService:
 
         return admin
 
-    async def create_admin(self, db: AsyncSession, email: str, password: str):
+    async def create_admin(self, db: AsyncSession, email: str, password: str, actor: User):
+        self._ensure_root_admin(actor)
+
         normalized_email = email.lower().strip()
 
         existing = await db.execute(select(User).where(User.email == normalized_email))
@@ -735,6 +935,8 @@ class AdminService:
         is_active: Optional[bool],
         current_admin_password: str,
     ):
+        self._ensure_root_admin(actor)
+
         if not HashService.verify_password(current_admin_password, actor.password):
             raise HTTPException(status_code=403, detail="Неверный пароль администратора")
 
@@ -784,6 +986,8 @@ class AdminService:
         actor: User,
         current_admin_password: str,
     ):
+        self._ensure_root_admin(actor)
+
         if not HashService.verify_password(current_admin_password, actor.password):
             raise HTTPException(status_code=403, detail="Неверный пароль администратора")
 
