@@ -359,41 +359,6 @@ async def list_catalog_items(
     return await admin_service.list_catalog_items(db, catalog_name, skip, limit, search)
 
 
-@admin_router.post(
-    "/catalogs/{catalog_name}",
-    response_model=CatalogItemResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_catalog_item(
-    catalog_name: str,
-    payload: CatalogItemCreate,
-    _: User = Depends(require_role("admin")),
-    db: AsyncSession = Depends(get_db),
-):
-    return await admin_service.create_catalog_item(db, catalog_name, payload.name)
-
-
-@admin_router.put("/catalogs/{catalog_name}/{item_id}", response_model=CatalogItemResponse)
-async def update_catalog_item(
-    catalog_name: str,
-    item_id: int,
-    payload: CatalogItemUpdate,
-    _: User = Depends(require_role("admin")),
-    db: AsyncSession = Depends(get_db),
-):
-    return await admin_service.update_catalog_item(db, catalog_name, item_id, payload.name)
-
-
-@admin_router.delete("/catalogs/{catalog_name}/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_catalog_item(
-    catalog_name: str,
-    item_id: int,
-    _: User = Depends(require_role("admin")),
-    db: AsyncSession = Depends(get_db),
-):
-    await admin_service.delete_catalog_item(db, catalog_name, item_id)
-
-
 @admin_router.get("/admins", response_model=list[AdminListItemResponse])
 async def list_admins(
     skip: int = Query(0, ge=0),

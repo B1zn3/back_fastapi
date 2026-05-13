@@ -1,9 +1,23 @@
-from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional
+
+from pydantic import BaseModel, Field
+
 from src.schemas.company_schemas.vacancy_schema import VacancyResponse
 
 
-class CompanyBase(BaseModel):
+class CompanyUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    description: Optional[str] = None
+    website: Optional[str] = None
+    logo: Optional[str] = None
+    founded_year: Optional[int] = Field(default=None, ge=1800, le=2100)
+    employee_count: Optional[int] = Field(default=None, ge=0)
+    company_type_id: Optional[int] = Field(default=None, ge=1)
+    city_ids: Optional[list[int]] = None
+
+
+class CompanyResponse(BaseModel):
+    id: int
     name: str
     description: Optional[str] = None
     website: Optional[str] = None
@@ -11,12 +25,10 @@ class CompanyBase(BaseModel):
     founded_year: Optional[int] = None
     employee_count: Optional[int] = None
 
-class CompanyUpdate(CompanyBase):
-    pass
+    company_type_id: Optional[int] = None
+    company_type_name: Optional[str] = None
 
-class CompanyResponse(CompanyBase):
-    id: int
-    vacancies: List[VacancyResponse] = []
+    cities: list[str] = Field(default_factory=list)
+    vacancies: list[VacancyResponse] = Field(default_factory=list)
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}

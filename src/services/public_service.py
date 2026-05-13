@@ -8,6 +8,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from src.models.model import (
     City,
     Company,
+    Currency,
     EducationalInstitution,
     EmploymentType,
     Experience,
@@ -31,6 +32,10 @@ class PublicService:
         "employment-types": EmploymentType,
         "educational-institutions": EducationalInstitution,
         "skills": Skill,
+        "currencies": Currency,
+        "statuses": Status,
+        
+
     }
 
     @staticmethod

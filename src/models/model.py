@@ -30,6 +30,13 @@ resume_skills = Table(
     Column("skill_id", Integer, ForeignKey("skills.id"), primary_key=True),
 )
 
+resume_favorite_vacancies = Table(
+    "resume_favorite_vacancies",
+    Base.metadata,
+    Column("resume_id", Integer, ForeignKey("resumes.id"), primary_key=True, nullable=False),
+    Column("favorite_vacancy_id", Integer, ForeignKey("favorite_vacancies.id"), primary_key=True, nullable=False),
+)
+
 
 class City(Base):
     __tablename__ = "cities"
@@ -105,7 +112,6 @@ class Applicant(Base):
     user: Mapped[Optional["User"]] = relationship(back_populates="applicant", uselist=False)
     resumes: Mapped[List["Resume"]] = relationship(back_populates="applicant")
     educations: Mapped[List["Education"]] = relationship(back_populates="applicant")
-
 
 class CompanyType(Base):
     __tablename__ = "company_types"
@@ -227,6 +233,11 @@ class Vacancy(Base):
     skills: Mapped[List["Skill"]] = relationship(secondary=vacancy_skills, back_populates="vacancies")
     applications: Mapped[List["Application"]] = relationship(back_populates="vacancy")
 
+    favorite_records: Mapped[List["FavoriteVacancy"]] = relationship(
+        back_populates="vacancy",
+        cascade="all, delete-orphan",
+    )
+
 
 class Resume(Base):
     __tablename__ = "resumes"
@@ -242,6 +253,16 @@ class Resume(Base):
     skills: Mapped[List["Skill"]] = relationship(secondary=resume_skills, back_populates="resumes")
     applications: Mapped[List["Application"]] = relationship(back_populates="resume")
     work_experiences: Mapped[List["WorkExperience"]] = relationship(back_populates="resume")
+
+    changes: Mapped[List["ResumeChange"]] = relationship(
+        back_populates="resume",
+        cascade="all, delete-orphan",
+    )
+
+    favorite_vacancies: Mapped[List["FavoriteVacancy"]] = relationship(
+        secondary=resume_favorite_vacancies,
+        back_populates="resumes",
+    )
 
 
 class WorkExperience(Base):
@@ -304,3 +325,44 @@ class Application(Base):
 
     vacancy: Mapped["Vacancy"] = relationship(back_populates="applications")
     resume: Mapped["Resume"] = relationship(back_populates="applications")
+
+class ResumeChange(Base):
+    __tablename__ = "resume_changes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    resume_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("resumes.id"),
+        nullable=False,
+        index=True,
+    )
+    changed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    resume: Mapped["Resume"] = relationship(back_populates="changes")
+
+class FavoriteVacancy(Base):
+    __tablename__ = "favorite_vacancies"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "vacancy_id",
+            name="uq_favorite_vacancies_vacancy_id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+
+    vacancy_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("vacancies.id"),
+        nullable=False,
+        index=True,
+    )
+
+    vacancy: Mapped["Vacancy"] = relationship(back_populates="favorite_records")
+
+    resumes: Mapped[List["Resume"]] = relationship(
+        secondary=resume_favorite_vacancies,
+        back_populates="favorite_vacancies",
+    )
+
