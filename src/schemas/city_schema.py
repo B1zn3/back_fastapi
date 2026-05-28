@@ -1,20 +1,23 @@
-from pydantic import BaseModel, Field
+from typing import Optional
 
-class CityBase(BaseModel):
-    name: str = Field(..., example="Москва", min_length=2, max_length=100)
+from pydantic import BaseModel
 
-class CityCreate(CityBase):
-    pass
 
-class CityResponse(CityBase):
+class CityResponse(BaseModel):
     id: int
+    name: str
+
+    full_name: Optional[str] = None
+
+    region_id: Optional[int] = None
+    region_name: Optional[str] = None
+
+    district_id: Optional[int] = None
+    district_name: Optional[str] = None
+
+    settlement_type_id: Optional[int] = None
+    settlement_type_name: Optional[str] = None
 
     model_config = {
-        "from_attributes": True,
-        "json_schema_extra": {
-            "example": {
-                "id": 1,
-                "name": "Москва"
-            }
-        }
+        "from_attributes": False,
     }

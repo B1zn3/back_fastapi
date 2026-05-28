@@ -10,11 +10,14 @@ from src.models.model import (
     City,
     CompanyType,
     Currency,
+    District,
     EducationalInstitution,
     EmploymentType,
     Experience,
     Profession,
+    Region,
     Role,
+    SettlementType,
     Skill,
     Status,
     User,
@@ -27,25 +30,178 @@ ROLES = [
     {"name": "applicant"},
 ]
 
+REGIONS = [
+    "Брестская область",
+    "Витебская область",
+    "Гомельская область",
+    "Гродненская область",
+    "Минская область",
+    "Могилёвская область",
+]
+
+SETTLEMENT_TYPES = [
+    "город",
+    "агрогородок",
+    "деревня",
+    "поселок",
+]
+
+DISTRICTS = [
+    {"name": "Брестский район", "region": "Брестская область"},
+    {"name": "Барановичский район", "region": "Брестская область"},
+    {"name": "Берёзовский район", "region": "Брестская область"},
+    {"name": "Дрогичинский район", "region": "Брестская область"},
+    {"name": "Жабинковский район", "region": "Брестская область"},
+    {"name": "Ивановский район", "region": "Брестская область"},
+    {"name": "Ивацевичский район", "region": "Брестская область"},
+    {"name": "Каменецкий район", "region": "Брестская область"},
+    {"name": "Кобринский район", "region": "Брестская область"},
+    {"name": "Лунинецкий район", "region": "Брестская область"},
+    {"name": "Пинский район", "region": "Брестская область"},
+    {"name": "Пружанский район", "region": "Брестская область"},
+    {"name": "Столинский район", "region": "Брестская область"},
+
+    {"name": "Витебский район", "region": "Витебская область"},
+    {"name": "Браславский район", "region": "Витебская область"},
+    {"name": "Глубокский район", "region": "Витебская область"},
+    {"name": "Докшицкий район", "region": "Витебская область"},
+    {"name": "Лепельский район", "region": "Витебская область"},
+    {"name": "Оршанский район", "region": "Витебская область"},
+    {"name": "Полоцкий район", "region": "Витебская область"},
+    {"name": "Поставский район", "region": "Витебская область"},
+    {"name": "Сенненский район", "region": "Витебская область"},
+    {"name": "Толочинский район", "region": "Витебская область"},
+    {"name": "Чашникский район", "region": "Витебская область"},
+
+    {"name": "Гомельский район", "region": "Гомельская область"},
+    {"name": "Брагинский район", "region": "Гомельская область"},
+    {"name": "Буда-Кошелёвский район", "region": "Гомельская область"},
+    {"name": "Ветковский район", "region": "Гомельская область"},
+    {"name": "Добрушский район", "region": "Гомельская область"},
+    {"name": "Житковичский район", "region": "Гомельская область"},
+    {"name": "Жлобинский район", "region": "Гомельская область"},
+    {"name": "Калинковичский район", "region": "Гомельская область"},
+    {"name": "Мозырский район", "region": "Гомельская область"},
+    {"name": "Речицкий район", "region": "Гомельская область"},
+    {"name": "Рогачёвский район", "region": "Гомельская область"},
+    {"name": "Светлогорский район", "region": "Гомельская область"},
+
+    {"name": "Гродненский район", "region": "Гродненская область"},
+    {"name": "Берестовицкий район", "region": "Гродненская область"},
+    {"name": "Волковысский район", "region": "Гродненская область"},
+    {"name": "Вороновский район", "region": "Гродненская область"},
+    {"name": "Зельвенский район", "region": "Гродненская область"},
+    {"name": "Ивьевский район", "region": "Гродненская область"},
+    {"name": "Лидский район", "region": "Гродненская область"},
+    {"name": "Новогрудский район", "region": "Гродненская область"},
+    {"name": "Островецкий район", "region": "Гродненская область"},
+    {"name": "Ошмянский район", "region": "Гродненская область"},
+    {"name": "Слонимский район", "region": "Гродненская область"},
+    {"name": "Сморгонский район", "region": "Гродненская область"},
+    {"name": "Щучинский район", "region": "Гродненская область"},
+
+    {"name": "Минский район", "region": "Минская область"},
+    {"name": "Березинский район", "region": "Минская область"},
+    {"name": "Борисовский район", "region": "Минская область"},
+    {"name": "Дзержинский район", "region": "Минская область"},
+    {"name": "Крупский район", "region": "Минская область"},
+    {"name": "Молодечненский район", "region": "Минская область"},
+    {"name": "Мядельский район", "region": "Минская область"},
+    {"name": "Слуцкий район", "region": "Минская область"},
+    {"name": "Солигорский район", "region": "Минская область"},
+    {"name": "Столбцовский район", "region": "Минская область"},
+
+    {"name": "Могилёвский район", "region": "Могилёвская область"},
+    {"name": "Бобруйский район", "region": "Могилёвская область"},
+    {"name": "Быховский район", "region": "Могилёвская область"},
+    {"name": "Горецкий район", "region": "Могилёвская область"},
+    {"name": "Кировский район", "region": "Могилёвская область"},
+    {"name": "Климовичский район", "region": "Могилёвская область"},
+    {"name": "Кричевский район", "region": "Могилёвская область"},
+    {"name": "Мстиславский район", "region": "Могилёвская область"},
+    {"name": "Осиповичский район", "region": "Могилёвская область"},
+    {"name": "Чаусский район", "region": "Могилёвская область"},
+    {"name": "Шкловский район", "region": "Могилёвская область"},
+]
+
 CITIES = [
-    "Минск", "Гомель", "Могилёв", "Витебск", "Гродно", "Брест",
-    "Бобруйск", "Барановичи", "Борисов", "Пинск", "Орша", "Мозырь",
-    "Солигорск", "Новополоцк", "Лида", "Молодечно", "Полоцк", "Жлобин",
-    "Светлогорск", "Речица", "Слуцк", "Жодино", "Кобрин", "Волковыск",
-    "Калинковичи", "Сморгонь", "Осиповичи", "Рогачёв", "Горки", "Березино",
-    "Дзержинск", "Ивацевичи", "Лунинец", "Марьина Горка", "Столбцы",
-    "Глубокое", "Лепель", "Новогрудок", "Слоним", "Добруш", "Житковичи",
-    "Климовичи", "Кричев", "Мстиславль", "Чаусы", "Чериков", "Шклов",
-    "Быхов", "Кировск", "Костюковичи", "Краснополье", "Крупки", "Мядель",
-    "Поставы", "Толочин", "Чашники", "Шарковщина", "Верхнедвинск",
-    "Браслав", "Докшицы", "Ушачи", "Россоны", "Миоры", "Городок",
-    "Дубровно", "Лиозно", "Сенно", "Мир", "Бешенковичи",
-    "Шумилино", "Берестовица", "Вороново", "Зельва", "Ивье", "Кореличи",
-    "Мосты", "Островец", "Ошмяны", "Свислочь", "Щучин", "Берёза",
-    "Ганцевичи", "Дрогичин", "Жабинка", "Иваново", "Каменец", "Кобрин",
-    "Ляховичи", "Малорита", "Пружаны", "Столин", "Брагин", "Буда-Кошелёво",
-    "Ветка", "Ельск", "Корма", "Лельчицы", "Лоев", "Наровля", "Октябрьский",
-    "Петриков", "Хойники", "Чечерск",
+    {"name": "Брест", "district": "Брестский район", "region": "Брестская область", "settlement_type": "город"},
+    {"name": "Барановичи", "district": "Барановичский район", "region": "Брестская область", "settlement_type": "город"},
+    {"name": "Берёза", "district": "Берёзовский район", "region": "Брестская область", "settlement_type": "город"},
+    {"name": "Дрогичин", "district": "Дрогичинский район", "region": "Брестская область", "settlement_type": "город"},
+    {"name": "Жабинка", "district": "Жабинковский район", "region": "Брестская область", "settlement_type": "город"},
+    {"name": "Иваново", "district": "Ивановский район", "region": "Брестская область", "settlement_type": "город"},
+    {"name": "Ивацевичи", "district": "Ивацевичский район", "region": "Брестская область", "settlement_type": "город"},
+    {"name": "Каменец", "district": "Каменецкий район", "region": "Брестская область", "settlement_type": "город"},
+    {"name": "Кобрин", "district": "Кобринский район", "region": "Брестская область", "settlement_type": "город"},
+    {"name": "Лунинец", "district": "Лунинецкий район", "region": "Брестская область", "settlement_type": "город"},
+    {"name": "Пинск", "district": "Пинский район", "region": "Брестская область", "settlement_type": "город"},
+    {"name": "Пружаны", "district": "Пружанский район", "region": "Брестская область", "settlement_type": "город"},
+    {"name": "Столин", "district": "Столинский район", "region": "Брестская область", "settlement_type": "город"},
+
+    {"name": "Витебск", "district": "Витебский район", "region": "Витебская область", "settlement_type": "город"},
+    {"name": "Браслав", "district": "Браславский район", "region": "Витебская область", "settlement_type": "город"},
+    {"name": "Глубокое", "district": "Глубокский район", "region": "Витебская область", "settlement_type": "город"},
+    {"name": "Докшицы", "district": "Докшицкий район", "region": "Витебская область", "settlement_type": "город"},
+    {"name": "Лепель", "district": "Лепельский район", "region": "Витебская область", "settlement_type": "город"},
+    {"name": "Орша", "district": "Оршанский район", "region": "Витебская область", "settlement_type": "город"},
+    {"name": "Полоцк", "district": "Полоцкий район", "region": "Витебская область", "settlement_type": "город"},
+    {"name": "Новополоцк", "district": "Полоцкий район", "region": "Витебская область", "settlement_type": "город"},
+    {"name": "Поставы", "district": "Поставский район", "region": "Витебская область", "settlement_type": "город"},
+    {"name": "Сенно", "district": "Сенненский район", "region": "Витебская область", "settlement_type": "город"},
+    {"name": "Толочин", "district": "Толочинский район", "region": "Витебская область", "settlement_type": "город"},
+    {"name": "Чашники", "district": "Чашникский район", "region": "Витебская область", "settlement_type": "город"},
+
+    {"name": "Гомель", "district": "Гомельский район", "region": "Гомельская область", "settlement_type": "город"},
+    {"name": "Брагин", "district": "Брагинский район", "region": "Гомельская область", "settlement_type": "поселок"},
+    {"name": "Буда-Кошелёво", "district": "Буда-Кошелёвский район", "region": "Гомельская область", "settlement_type": "город"},
+    {"name": "Ветка", "district": "Ветковский район", "region": "Гомельская область", "settlement_type": "город"},
+    {"name": "Добруш", "district": "Добрушский район", "region": "Гомельская область", "settlement_type": "город"},
+    {"name": "Житковичи", "district": "Житковичский район", "region": "Гомельская область", "settlement_type": "город"},
+    {"name": "Жлобин", "district": "Жлобинский район", "region": "Гомельская область", "settlement_type": "город"},
+    {"name": "Калинковичи", "district": "Калинковичский район", "region": "Гомельская область", "settlement_type": "город"},
+    {"name": "Мозырь", "district": "Мозырский район", "region": "Гомельская область", "settlement_type": "город"},
+    {"name": "Речица", "district": "Речицкий район", "region": "Гомельская область", "settlement_type": "город"},
+    {"name": "Рогачёв", "district": "Рогачёвский район", "region": "Гомельская область", "settlement_type": "город"},
+    {"name": "Светлогорск", "district": "Светлогорский район", "region": "Гомельская область", "settlement_type": "город"},
+
+    {"name": "Гродно", "district": "Гродненский район", "region": "Гродненская область", "settlement_type": "город"},
+    {"name": "Большая Берестовица", "district": "Берестовицкий район", "region": "Гродненская область", "settlement_type": "поселок"},
+    {"name": "Волковыск", "district": "Волковысский район", "region": "Гродненская область", "settlement_type": "город"},
+    {"name": "Вороново", "district": "Вороновский район", "region": "Гродненская область", "settlement_type": "поселок"},
+    {"name": "Зельва", "district": "Зельвенский район", "region": "Гродненская область", "settlement_type": "поселок"},
+    {"name": "Ивье", "district": "Ивьевский район", "region": "Гродненская область", "settlement_type": "город"},
+    {"name": "Лида", "district": "Лидский район", "region": "Гродненская область", "settlement_type": "город"},
+    {"name": "Новогрудок", "district": "Новогрудский район", "region": "Гродненская область", "settlement_type": "город"},
+    {"name": "Островец", "district": "Островецкий район", "region": "Гродненская область", "settlement_type": "город"},
+    {"name": "Ошмяны", "district": "Ошмянский район", "region": "Гродненская область", "settlement_type": "город"},
+    {"name": "Слоним", "district": "Слонимский район", "region": "Гродненская область", "settlement_type": "город"},
+    {"name": "Сморгонь", "district": "Сморгонский район", "region": "Гродненская область", "settlement_type": "город"},
+    {"name": "Щучин", "district": "Щучинский район", "region": "Гродненская область", "settlement_type": "город"},
+
+    {"name": "Минск", "district": "Минский район", "region": "Минская область", "settlement_type": "город"},
+    {"name": "Березино", "district": "Березинский район", "region": "Минская область", "settlement_type": "город"},
+    {"name": "Борисов", "district": "Борисовский район", "region": "Минская область", "settlement_type": "город"},
+    {"name": "Жодино", "district": "Борисовский район", "region": "Минская область", "settlement_type": "город"},
+    {"name": "Дзержинск", "district": "Дзержинский район", "region": "Минская область", "settlement_type": "город"},
+    {"name": "Крупки", "district": "Крупский район", "region": "Минская область", "settlement_type": "город"},
+    {"name": "Молодечно", "district": "Молодечненский район", "region": "Минская область", "settlement_type": "город"},
+    {"name": "Мядель", "district": "Мядельский район", "region": "Минская область", "settlement_type": "город"},
+    {"name": "Слуцк", "district": "Слуцкий район", "region": "Минская область", "settlement_type": "город"},
+    {"name": "Солигорск", "district": "Солигорский район", "region": "Минская область", "settlement_type": "город"},
+    {"name": "Столбцы", "district": "Столбцовский район", "region": "Минская область", "settlement_type": "город"},
+
+    {"name": "Могилёв", "district": "Могилёвский район", "region": "Могилёвская область", "settlement_type": "город"},
+    {"name": "Бобруйск", "district": "Бобруйский район", "region": "Могилёвская область", "settlement_type": "город"},
+    {"name": "Быхов", "district": "Быховский район", "region": "Могилёвская область", "settlement_type": "город"},
+    {"name": "Горки", "district": "Горецкий район", "region": "Могилёвская область", "settlement_type": "город"},
+    {"name": "Кировск", "district": "Кировский район", "region": "Могилёвская область", "settlement_type": "город"},
+    {"name": "Климовичи", "district": "Климовичский район", "region": "Могилёвская область", "settlement_type": "город"},
+    {"name": "Кричев", "district": "Кричевский район", "region": "Могилёвская область", "settlement_type": "город"},
+    {"name": "Мстиславль", "district": "Мстиславский район", "region": "Могилёвская область", "settlement_type": "город"},
+    {"name": "Осиповичи", "district": "Осиповичский район", "region": "Могилёвская область", "settlement_type": "город"},
+    {"name": "Чаусы", "district": "Чаусский район", "region": "Могилёвская область", "settlement_type": "город"},
+    {"name": "Шклов", "district": "Шкловский район", "region": "Могилёвская область", "settlement_type": "город"},
 ]
 
 PROFESSIONS = [
@@ -187,13 +343,101 @@ async def seed_roles(db: AsyncSession) -> None:
     print("✅ Роли обработаны.")
 
 
-async def seed_cities(db: AsyncSession) -> None:
-    for city_name in CITIES:
-        existing = await db.execute(select(City).where(City.name == city_name))
-        if not existing.scalar_one_or_none():
-            db.add(City(name=city_name))
+async def get_or_create_by_name(db: AsyncSession, model, name: str):
+    existing = await db.execute(select(model).where(model.name == name))
+    item = existing.scalar_one_or_none()
+
+    if item:
+        return item
+
+    item = model(name=name)
+    db.add(item)
     await db.flush()
-    print("✅ Города обработаны.")
+    return item
+
+
+async def seed_regions(db: AsyncSession) -> None:
+    for region_name in REGIONS:
+        await get_or_create_by_name(db, Region, region_name)
+    await db.flush()
+    print("✅ Области обработаны.")
+
+
+async def seed_settlement_types(db: AsyncSession) -> None:
+    for settlement_type_name in SETTLEMENT_TYPES:
+        await get_or_create_by_name(db, SettlementType, settlement_type_name)
+    await db.flush()
+    print("✅ Типы населённых пунктов обработаны.")
+
+
+async def seed_districts(db: AsyncSession) -> None:
+    for district_data in DISTRICTS:
+        region = await get_or_create_by_name(db, Region, district_data["region"])
+
+        existing = await db.execute(
+            select(District).where(
+                District.name == district_data["name"],
+                District.region_id == region.id,
+            )
+        )
+
+        if not existing.scalar_one_or_none():
+            db.add(
+                District(
+                    name=district_data["name"],
+                    region_id=region.id,
+                )
+            )
+
+    await db.flush()
+    print("✅ Районы обработаны.")
+
+
+async def seed_cities(db: AsyncSession) -> None:
+    for city_data in CITIES:
+        region = await get_or_create_by_name(db, Region, city_data["region"])
+
+        district_result = await db.execute(
+            select(District).where(
+                District.name == city_data["district"],
+                District.region_id == region.id,
+            )
+        )
+        district = district_result.scalar_one_or_none()
+
+        if not district:
+            district = District(
+                name=city_data["district"],
+                region_id=region.id,
+            )
+            db.add(district)
+            await db.flush()
+
+        settlement_type = await get_or_create_by_name(
+            db,
+            SettlementType,
+            city_data["settlement_type"],
+        )
+
+        existing = await db.execute(
+            select(City).where(
+                City.name == city_data["name"],
+                City.district_id == district.id,
+                City.settlement_type_id == settlement_type.id,
+            )
+        )
+
+        if not existing.scalar_one_or_none():
+            db.add(
+                City(
+                    name=city_data["name"],
+                    district_id=district.id,
+                    settlement_type_id=settlement_type.id,
+                )
+            )
+
+    await db.flush()
+    print("✅ Населённые пункты обработаны.")
 
 
 async def seed_professions(db: AsyncSession) -> None:
@@ -310,7 +554,12 @@ async def seed_admin_user(db: AsyncSession) -> None:
 async def seed_all():
     async with async_session() as db:
         await seed_roles(db)
+
+        await seed_regions(db)
+        await seed_settlement_types(db)
+        await seed_districts(db)
         await seed_cities(db)
+
         await seed_professions(db)
         await seed_skills(db)
         await seed_work_schedules(db)

@@ -6,15 +6,28 @@ from pydantic import BaseModel, EmailStr, Field
 
 class CatalogItemCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
+    region_id: Optional[int] = None
+    district_id: Optional[int] = None
+    settlement_type_id: Optional[int] = None
 
 
 class CatalogItemUpdate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
+    region_id: Optional[int] = None
+    district_id: Optional[int] = None
+    settlement_type_id: Optional[int] = None
 
 
 class CatalogItemResponse(BaseModel):
     id: int
     name: str
+    region_id: Optional[int] = None
+    region_name: Optional[str] = None
+    district_id: Optional[int] = None
+    district_name: Optional[str] = None
+    settlement_type_id: Optional[int] = None
+    settlement_type_name: Optional[str] = None
+    full_name: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

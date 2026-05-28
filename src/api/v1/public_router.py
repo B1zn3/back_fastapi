@@ -1,20 +1,17 @@
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.deps.db_deps import get_db
-from src.schemas.admin_schema import (
-    CatalogItemResponse,
-   
-)
 from src.schemas.public_schema import (
-     CompanyPublicDetail,
+    CompanyPublicDetail,
     CompanyPublicListItem,
     ProfessionPublicListItem,
     VacancyPublicDetail,
-    )
+)
 from src.services.public_service import public_service
+
 
 public_router = APIRouter(prefix="/public", tags=["Публичные данные"])
 
@@ -58,14 +55,19 @@ async def get_public_vacancy_detail(
     return await public_service.get_vacancy_detail(db, vacancy_id)
 
 
-@public_router.get("/catalogs/{catalog_name}", response_model=list[CatalogItemResponse])
+@public_router.get("/catalogs/{catalog_name}", response_model=list[dict[str, Any]])
 async def get_public_catalog_items(
     catalog_name: str,
     skip: int = Query(0, ge=0),
-    limit: int = Query(200, ge=1, le=500),
+    limit: int = Query(200, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
 ):
-    return await public_service.get_catalog_items(db, catalog_name, skip, limit)
+    return await public_service.get_catalog_items(
+        db=db,
+        catalog_name=catalog_name,
+        skip=skip,
+        limit=limit,
+    )
 
 
 @public_router.get("/companies", response_model=list[CompanyPublicListItem], summary="Get public companies")

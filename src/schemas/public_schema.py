@@ -4,6 +4,22 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 
+class CityPublicCatalogItem(BaseModel):
+    id: int
+    name: str
+
+    district_id: Optional[int] = None
+    district_name: Optional[str] = None
+
+    region_id: Optional[int] = None
+    region_name: Optional[str] = None
+
+    settlement_type_id: Optional[int] = None
+    settlement_type_name: Optional[str] = None
+
+    full_name: Optional[str] = None
+
+
 class VacancyPublicListItem(BaseModel):
     id: int
     title: str
@@ -11,8 +27,15 @@ class VacancyPublicListItem(BaseModel):
     salary_min: Optional[int] = None
     salary_max: Optional[int] = None
     created_at: datetime
+
+    company_id: Optional[int] = None
     company_name: Optional[str] = None
+
+    city_id: Optional[int] = None
     city_name: Optional[str] = None
+    city_full_name: Optional[str] = None
+    city: Optional[CityPublicCatalogItem] = None
+
     profession_name: Optional[str] = None
 
 
@@ -30,10 +53,16 @@ class VacancyPublicDetail(VacancyPublicListItem):
     company_logo: Optional[str] = None
     company_founded_year: Optional[int] = None
     company_employee_count: Optional[int] = None
-    company_cities: list[str] = Field(default_factory=list)
+
+    company_city_names: list[str] = Field(default_factory=list)
+    company_cities: list[CityPublicCatalogItem] = Field(default_factory=list)
+
+
 class ProfessionPublicListItem(BaseModel):
     id: int
     name: str
+
+
 class CompanyPublicListItem(BaseModel):
     id: int
     name: str
@@ -43,8 +72,13 @@ class CompanyPublicListItem(BaseModel):
     founded_year: Optional[int] = None
     employee_count: Optional[int] = None
     vacancies_count: int = 0
+
     city_names: list[str] = Field(default_factory=list)
+    cities: list[CityPublicCatalogItem] = Field(default_factory=list)
+
     first_letter: str
     company_type_name: Optional[str] = None
+
+
 class CompanyPublicDetail(CompanyPublicListItem):
     pass

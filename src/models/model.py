@@ -38,18 +38,6 @@ resume_favorite_vacancies = Table(
 )
 
 
-class City(Base):
-    __tablename__ = "cities"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
-
-    applicants: Mapped[List["Applicant"]] = relationship(back_populates="city")
-    vacancies: Mapped[List["Vacancy"]] = relationship(back_populates="city")
-    companies: Mapped[List["Company"]] = relationship(
-        secondary=company_cities,
-        back_populates="cities",
-    )
 
 
 class EmploymentType(Base):
@@ -160,10 +148,13 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     company_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("companies.id"), unique=True)
     applicant_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("applicants.id"), unique=True)
-
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    is_online: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    
     role: Mapped["Role"] = relationship(back_populates="user")
     company: Mapped[Optional["Company"]] = relationship(back_populates="user")
     applicant: Mapped[Optional["Applicant"]] = relationship(back_populates="user")
+    messages: Mapped[List["Message"]] = relationship(back_populates="sender")
 
 
 class Profession(Base):
@@ -325,17 +316,13 @@ class Application(Base):
 
     vacancy: Mapped["Vacancy"] = relationship(back_populates="applications")
     resume: Mapped["Resume"] = relationship(back_populates="applications")
+    chat: Mapped[Optional["Chat"]] = relationship(back_populates="application", uselist=False)
 
 class ResumeChange(Base):
     __tablename__ = "resume_changes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    resume_id: Mapped[int] = mapped_column(
-        Integer,
-        ForeignKey("resumes.id"),
-        nullable=False,
-        index=True,
-    )
+    resume_id: Mapped[int] = mapped_column(Integer, ForeignKey("resumes.id"), nullable=False, index=True)
     changed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     resume: Mapped["Resume"] = relationship(back_populates="changes")
@@ -343,26 +330,114 @@ class ResumeChange(Base):
 class FavoriteVacancy(Base):
     __tablename__ = "favorite_vacancies"
 
-    __table_args__ = (
-        UniqueConstraint(
-            "vacancy_id",
-            name="uq_favorite_vacancies_vacancy_id",
-        ),
-    )
+    __table_args__ = (UniqueConstraint("vacancy_id", name="uq_favorite_vacancies_vacancy_id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
-    vacancy_id: Mapped[int] = mapped_column(
-        Integer,
-        ForeignKey("vacancies.id"),
-        nullable=False,
-        index=True,
-    )
-
+    vacancy_id: Mapped[int] = mapped_column(Integer, ForeignKey("vacancies.id"), nullable=False, index=True,)
+    
     vacancy: Mapped["Vacancy"] = relationship(back_populates="favorite_records")
+    resumes: Mapped[List["Resume"]] = relationship(secondary=resume_favorite_vacancies, back_populates="favorite_vacancies")
 
-    resumes: Mapped[List["Resume"]] = relationship(
-        secondary=resume_favorite_vacancies,
-        back_populates="favorite_vacancies",
+class Chat(Base):
+    __tablename__ = "chats"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    application_id: Mapped[int] = mapped_column(Integer, ForeignKey("applications.id"), nullable=False, unique=True, index=True,)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow,)
+
+    application: Mapped["Application"] = relationship(back_populates="chat")
+    messages: Mapped[List["Message"]] = relationship(back_populates="chat", cascade="all, delete-orphan", order_by="Message.created_at")
+
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    chat_id: Mapped[int] = mapped_column(Integer, ForeignKey("chats.id"), nullable=False, index=True,)
+    sender_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, index=True,)
+    read_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
+
+    chat: Mapped["Chat"] = relationship(back_populates="messages")
+    sender: Mapped["User"] = relationship(back_populates="messages")
+    attachments: Mapped[List["MessageAttachment"]] = relationship(back_populates="message", cascade="all, delete-orphan")
+
+
+class MessageAttachment(Base):
+    __tablename__ = "message_attachments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    message_id: Mapped[int] = mapped_column(Integer, ForeignKey("messages.id"), nullable=False, index=True)
+    file_url: Mapped[str] = mapped_column(String, nullable=False)
+    file_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    file_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    file_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+    message: Mapped["Message"] = relationship(back_populates="attachments")
+
+class Region(Base):
+    __tablename__ = "regions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+
+    districts: Mapped[List["District"]] = relationship(back_populates="region", cascade="all, delete-orphan")
+
+
+class District(Base):
+    __tablename__ = "districts"
+
+    __table_args__ = (
+        UniqueConstraint("region_id", "name", name="uq_district_region_name"),
     )
 
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    region_id: Mapped[int] = mapped_column(Integer, ForeignKey("regions.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+
+    region: Mapped["Region"] = relationship(back_populates="districts")
+    cities: Mapped[List["City"]] = relationship(back_populates="district", cascade="all, delete-orphan")
+
+
+class SettlementType(Base):
+    __tablename__ = "settlement_types"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+
+    cities: Mapped[List["City"]] = relationship(back_populates="settlement_type")
+
+
+class City(Base):
+    __tablename__ = "cities"
+
+    __table_args__ = (
+        UniqueConstraint("district_id", "settlement_type_id", "name", name="uq_city_district_type_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    district_id: Mapped[int] = mapped_column(Integer, ForeignKey("districts.id"), nullable=False, index=True)
+    settlement_type_id: Mapped[int] = mapped_column(Integer, ForeignKey("settlement_types.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, index=True)
+
+    district: Mapped["District"] = relationship(back_populates="cities")
+    settlement_type: Mapped["SettlementType"] = relationship(back_populates="cities")
+    applicants: Mapped[List["Applicant"]] = relationship(back_populates="city")
+    vacancies: Mapped[List["Vacancy"]] = relationship(back_populates="city")
+    companies: Mapped[List["Company"]] = relationship(secondary=company_cities, back_populates="cities" )
+
+    @property
+    def full_name(self) -> str:
+        settlement_type = self.settlement_type.name if self.settlement_type else ""
+        district = self.district.name if self.district else ""
+        region = self.district.region.name if self.district and self.district.region else ""
+
+        parts = [
+            f"{settlement_type} {self.name}".strip(),
+            district,
+            region,
+        ]
+        return ", ".join(part for part in parts if part)

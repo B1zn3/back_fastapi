@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import Select, String, func, or_, select
+from sqlalchemy import Select, String, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -11,23 +11,33 @@ from src.core.hash import HashService
 from src.models.model import (
     Applicant,
     Application,
+    Chat,
     City,
     Company,
     CompanyType,
     Currency,
+    District,
     Education,
     EducationalInstitution,
     EmploymentType,
     Experience,
+    FavoriteVacancy,
+    Message,
+    MessageAttachment,
     Profession,
+    Region,
     Resume,
+    ResumeChange,
     Role,
+    SettlementType,
     Skill,
     Status,
     User,
     Vacancy,
+    WorkExperience,
     WorkSchedule,
     company_cities,
+    resume_favorite_vacancies,
     resume_skills,
     vacancy_skills,
 )
@@ -36,17 +46,20 @@ from src.redis.auth import session_manager
 
 class AdminService:
     catalog_map: dict[str, Any] = {
-        "cities": City,
-        "professions": Profession,
-        "skills": Skill,
-        "currencies": Currency,
-        "experiences": Experience,
-        "statuses": Status,
-        "work-schedules": WorkSchedule,
-        "employment-types": EmploymentType,
-        "educational-institutions": EducationalInstitution,
-        "company-types": CompanyType,
-    }
+    "regions": Region,
+    "districts": District,
+    "settlement-types": SettlementType,
+    "cities": City,
+    "professions": Profession,
+    "skills": Skill,
+    "currencies": Currency,
+    "experiences": Experience,
+    "statuses": Status,
+    "work-schedules": WorkSchedule,
+    "employment-types": EmploymentType,
+    "educational-institutions": EducationalInstitution,
+    "company-types": CompanyType,
+}
 
     def _get_catalog_model(self, catalog_name: str):
         model = self.catalog_map.get(catalog_name)
@@ -105,6 +118,348 @@ class AdminService:
             .join(Role, User.role_id == Role.id)
             .where(Role.name == "admin", User.is_active.is_(True)),
         )
+    async def _delete_chats_by_application_ids(
+        self,
+        db: AsyncSession,
+        application_ids: list[int],
+    ) -> None:
+        if not application_ids:
+            return
+
+        chat_ids_result = await db.execute(
+            select(Chat.id).where(Chat.application_id.in_(application_ids))
+        )
+        chat_ids = list(chat_ids_result.scalars().all())
+
+        if not chat_ids:
+            return
+
+        message_ids_result = await db.execute(
+            select(Message.id).where(Message.chat_id.in_(chat_ids))
+        )
+        message_ids = list(message_ids_result.scalars().all())
+
+        if message_ids:
+            await db.execute(
+                delete(MessageAttachment).where(
+                    MessageAttachment.message_id.in_(message_ids)
+                )
+            )
+            await db.execute(
+                delete(Message).where(Message.id.in_(message_ids))
+            )
+
+        await db.execute(
+            delete(Chat).where(Chat.id.in_(chat_ids))
+        )
+
+
+    async def _delete_applications_by_ids(
+        self,
+        db: AsyncSession,
+        application_ids: list[int],
+    ) -> None:
+        if not application_ids:
+            return
+
+        await self._delete_chats_by_application_ids(db, application_ids)
+
+        await db.execute(
+            delete(Application).where(Application.id.in_(application_ids))
+        )
+
+
+    async def _delete_vacancies_by_ids(
+        self,
+        db: AsyncSession,
+        vacancy_ids: list[int],
+    ) -> None:
+        if not vacancy_ids:
+            return
+
+        application_ids_result = await db.execute(
+            select(Application.id).where(Application.vacancy_id.in_(vacancy_ids))
+        )
+        application_ids = list(application_ids_result.scalars().all())
+
+        await self._delete_applications_by_ids(db, application_ids)
+
+        favorite_ids_result = await db.execute(
+            select(FavoriteVacancy.id).where(FavoriteVacancy.vacancy_id.in_(vacancy_ids))
+        )
+        favorite_ids = list(favorite_ids_result.scalars().all())
+
+        if favorite_ids:
+            await db.execute(
+                delete(resume_favorite_vacancies).where(
+                    resume_favorite_vacancies.c.favorite_vacancy_id.in_(favorite_ids)
+                )
+            )
+            await db.execute(
+                delete(FavoriteVacancy).where(FavoriteVacancy.id.in_(favorite_ids))
+            )
+
+        await db.execute(
+            delete(vacancy_skills).where(vacancy_skills.c.vacancy_id.in_(vacancy_ids))
+        )
+
+        await db.execute(
+            delete(Vacancy).where(Vacancy.id.in_(vacancy_ids))
+        )
+
+
+    async def _delete_resumes_by_ids(
+        self,
+        db: AsyncSession,
+        resume_ids: list[int],
+    ) -> None:
+        if not resume_ids:
+            return
+
+        application_ids_result = await db.execute(
+            select(Application.id).where(Application.resume_id.in_(resume_ids))
+        )
+        application_ids = list(application_ids_result.scalars().all())
+
+        await self._delete_applications_by_ids(db, application_ids)
+
+        await db.execute(
+            delete(resume_favorite_vacancies).where(
+                resume_favorite_vacancies.c.resume_id.in_(resume_ids)
+            )
+        )
+
+        await db.execute(
+            delete(resume_skills).where(resume_skills.c.resume_id.in_(resume_ids))
+        )
+
+        await db.execute(
+            delete(ResumeChange).where(ResumeChange.resume_id.in_(resume_ids))
+        )
+
+        await db.execute(
+            delete(WorkExperience).where(WorkExperience.resume_id.in_(resume_ids))
+        )
+
+        await db.execute(
+            delete(Resume).where(Resume.id.in_(resume_ids))
+        )
+
+
+    async def _delete_cities_by_ids(
+        self,
+        db: AsyncSession,
+        city_ids: list[int],
+    ) -> None:
+        if not city_ids:
+            return
+
+        vacancy_ids_result = await db.execute(
+            select(Vacancy.id).where(Vacancy.city_id.in_(city_ids))
+        )
+        vacancy_ids = list(vacancy_ids_result.scalars().all())
+
+        await self._delete_vacancies_by_ids(db, vacancy_ids)
+
+        await db.execute(
+            delete(company_cities).where(company_cities.c.city_id.in_(city_ids))
+        )
+
+        await db.execute(
+            update(Applicant)
+            .where(Applicant.city_id.in_(city_ids))
+            .values(city_id=None)
+        )
+
+        await db.execute(
+            delete(City).where(City.id.in_(city_ids))
+        )
+
+
+    async def _force_delete_catalog_item(
+        self,
+        db: AsyncSession,
+        catalog_name: str,
+        item_id: int,
+    ) -> None:
+        model = self._get_catalog_model(catalog_name)
+        instance = await db.get(model, item_id)
+
+        if not instance:
+            raise HTTPException(status_code=404, detail="Элемент справочника не найден")
+
+        if catalog_name == "regions":
+            district_ids_result = await db.execute(
+                select(District.id).where(District.region_id == item_id)
+            )
+            district_ids = list(district_ids_result.scalars().all())
+
+            if district_ids:
+                city_ids_result = await db.execute(
+                    select(City.id).where(City.district_id.in_(district_ids))
+                )
+                city_ids = list(city_ids_result.scalars().all())
+
+                await self._delete_cities_by_ids(db, city_ids)
+
+                await db.execute(
+                    delete(District).where(District.id.in_(district_ids))
+                )
+
+            await db.execute(
+                delete(Region).where(Region.id == item_id)
+            )
+            return
+
+        if catalog_name == "districts":
+            city_ids_result = await db.execute(
+                select(City.id).where(City.district_id == item_id)
+            )
+            city_ids = list(city_ids_result.scalars().all())
+
+            await self._delete_cities_by_ids(db, city_ids)
+
+            await db.execute(
+                delete(District).where(District.id == item_id)
+            )
+            return
+
+        if catalog_name == "settlement-types":
+            city_ids_result = await db.execute(
+                select(City.id).where(City.settlement_type_id == item_id)
+            )
+            city_ids = list(city_ids_result.scalars().all())
+
+            await self._delete_cities_by_ids(db, city_ids)
+
+            await db.execute(
+                delete(SettlementType).where(SettlementType.id == item_id)
+            )
+            return
+
+        if catalog_name == "cities":
+            await self._delete_cities_by_ids(db, [item_id])
+            return
+
+        if catalog_name == "professions":
+            vacancy_ids_result = await db.execute(
+                select(Vacancy.id).where(Vacancy.profession_id == item_id)
+            )
+            vacancy_ids = list(vacancy_ids_result.scalars().all())
+
+            resume_ids_result = await db.execute(
+                select(Resume.id).where(Resume.profession_id == item_id)
+            )
+            resume_ids = list(resume_ids_result.scalars().all())
+
+            await self._delete_vacancies_by_ids(db, vacancy_ids)
+            await self._delete_resumes_by_ids(db, resume_ids)
+
+            await db.execute(
+                delete(Profession).where(Profession.id == item_id)
+            )
+            return
+
+        if catalog_name == "skills":
+            await db.execute(
+                delete(vacancy_skills).where(vacancy_skills.c.skill_id == item_id)
+            )
+            await db.execute(
+                delete(resume_skills).where(resume_skills.c.skill_id == item_id)
+            )
+            await db.execute(
+                delete(Skill).where(Skill.id == item_id)
+            )
+            return
+
+        if catalog_name == "work-schedules":
+            vacancy_ids_result = await db.execute(
+                select(Vacancy.id).where(Vacancy.work_schedule_id == item_id)
+            )
+            vacancy_ids = list(vacancy_ids_result.scalars().all())
+
+            await self._delete_vacancies_by_ids(db, vacancy_ids)
+
+            await db.execute(
+                delete(WorkSchedule).where(WorkSchedule.id == item_id)
+            )
+            return
+
+        if catalog_name == "employment-types":
+            vacancy_ids_result = await db.execute(
+                select(Vacancy.id).where(Vacancy.employment_type_id == item_id)
+            )
+            vacancy_ids = list(vacancy_ids_result.scalars().all())
+
+            await self._delete_vacancies_by_ids(db, vacancy_ids)
+
+            await db.execute(
+                delete(EmploymentType).where(EmploymentType.id == item_id)
+            )
+            return
+
+        if catalog_name == "currencies":
+            vacancy_ids_result = await db.execute(
+                select(Vacancy.id).where(Vacancy.currency_id == item_id)
+            )
+            vacancy_ids = list(vacancy_ids_result.scalars().all())
+
+            await self._delete_vacancies_by_ids(db, vacancy_ids)
+
+            await db.execute(
+                delete(Currency).where(Currency.id == item_id)
+            )
+            return
+
+        if catalog_name == "experiences":
+            vacancy_ids_result = await db.execute(
+                select(Vacancy.id).where(Vacancy.experience_id == item_id)
+            )
+            vacancy_ids = list(vacancy_ids_result.scalars().all())
+
+            await self._delete_vacancies_by_ids(db, vacancy_ids)
+
+            await db.execute(
+                delete(Experience).where(Experience.id == item_id)
+            )
+            return
+
+        if catalog_name == "statuses":
+            vacancy_ids_result = await db.execute(
+                select(Vacancy.id).where(Vacancy.status_id == item_id)
+            )
+            vacancy_ids = list(vacancy_ids_result.scalars().all())
+
+            await self._delete_vacancies_by_ids(db, vacancy_ids)
+
+            await db.execute(
+                delete(Status).where(Status.id == item_id)
+            )
+            return
+
+        if catalog_name == "educational-institutions":
+            await db.execute(
+                delete(Education).where(Education.institution_id == item_id)
+            )
+
+            await db.execute(
+                delete(EducationalInstitution).where(EducationalInstitution.id == item_id)
+            )
+            return
+
+        if catalog_name == "company-types":
+            await db.execute(
+                update(Company)
+                .where(Company.company_type_id == item_id)
+                .values(company_type_id=None)
+            )
+
+            await db.execute(
+                delete(CompanyType).where(CompanyType.id == item_id)
+            )
+            return
+
+        await db.delete(instance)
 
     async def _catalog_usage_counts(
         self,
@@ -114,74 +469,200 @@ class AdminService:
     ) -> dict[str, int]:
         counts: dict[str, int] = {}
 
-        if catalog_name == "cities":
-            counts["соискателях"] = await self._scalar_count(
-                db,
-                select(func.count()).select_from(Applicant).where(Applicant.city_id == item_id),
+        if catalog_name == "regions":
+            district_ids_result = await db.execute(
+                select(District.id).where(District.region_id == item_id)
             )
-            counts["вакансиях"] = await self._scalar_count(
-                db,
-                select(func.count()).select_from(Vacancy).where(Vacancy.city_id == item_id),
+            district_ids = list(district_ids_result.scalars().all())
+
+            counts["районы"] = len(district_ids)
+
+            if district_ids:
+                city_ids_result = await db.execute(
+                    select(City.id).where(City.district_id.in_(district_ids))
+                )
+                city_ids = list(city_ids_result.scalars().all())
+
+                counts["города"] = len(city_ids)
+
+                if city_ids:
+                    counts["вакансии"] = await self._scalar_count(
+                        db,
+                        select(func.count())
+                        .select_from(Vacancy)
+                        .where(Vacancy.city_id.in_(city_ids)),
+                    )
+                    counts["соискатели"] = await self._scalar_count(
+                        db,
+                        select(func.count())
+                        .select_from(Applicant)
+                        .where(Applicant.city_id.in_(city_ids)),
+                    )
+                    counts["компании"] = await self._scalar_count(
+                        db,
+                        select(func.count(func.distinct(company_cities.c.company_id)))
+                        .select_from(company_cities)
+                        .where(company_cities.c.city_id.in_(city_ids)),
+                    )
+
+        elif catalog_name == "districts":
+            city_ids_result = await db.execute(
+                select(City.id).where(City.district_id == item_id)
             )
-            counts["компаниях"] = await self._scalar_count(
+            city_ids = list(city_ids_result.scalars().all())
+
+            counts["города"] = len(city_ids)
+
+            if city_ids:
+                counts["вакансии"] = await self._scalar_count(
+                    db,
+                    select(func.count())
+                    .select_from(Vacancy)
+                    .where(Vacancy.city_id.in_(city_ids)),
+                )
+                counts["соискатели"] = await self._scalar_count(
+                    db,
+                    select(func.count())
+                    .select_from(Applicant)
+                    .where(Applicant.city_id.in_(city_ids)),
+                )
+                counts["компании"] = await self._scalar_count(
+                    db,
+                    select(func.count(func.distinct(company_cities.c.company_id)))
+                    .select_from(company_cities)
+                    .where(company_cities.c.city_id.in_(city_ids)),
+                )
+
+        elif catalog_name == "settlement-types":
+            city_ids_result = await db.execute(
+                select(City.id).where(City.settlement_type_id == item_id)
+            )
+            city_ids = list(city_ids_result.scalars().all())
+
+            counts["города"] = len(city_ids)
+
+            if city_ids:
+                counts["вакансии"] = await self._scalar_count(
+                    db,
+                    select(func.count())
+                    .select_from(Vacancy)
+                    .where(Vacancy.city_id.in_(city_ids)),
+                )
+                counts["соискатели"] = await self._scalar_count(
+                    db,
+                    select(func.count())
+                    .select_from(Applicant)
+                    .where(Applicant.city_id.in_(city_ids)),
+                )
+                counts["компании"] = await self._scalar_count(
+                    db,
+                    select(func.count(func.distinct(company_cities.c.company_id)))
+                    .select_from(company_cities)
+                    .where(company_cities.c.city_id.in_(city_ids)),
+                )
+
+        elif catalog_name == "cities":
+            counts["вакансии"] = await self._scalar_count(
                 db,
-                select(func.count()).select_from(company_cities).where(company_cities.c.city_id == item_id),
+                select(func.count())
+                .select_from(Vacancy)
+                .where(Vacancy.city_id == item_id),
+            )
+            counts["соискатели"] = await self._scalar_count(
+                db,
+                select(func.count())
+                .select_from(Applicant)
+                .where(Applicant.city_id == item_id),
+            )
+            counts["компании"] = await self._scalar_count(
+                db,
+                select(func.count(func.distinct(company_cities.c.company_id)))
+                .select_from(company_cities)
+                .where(company_cities.c.city_id == item_id),
             )
 
         elif catalog_name == "professions":
+            counts["вакансии"] = await self._scalar_count(
+                db,
+                select(func.count())
+                .select_from(Vacancy)
+                .where(Vacancy.profession_id == item_id),
+            )
             counts["резюме"] = await self._scalar_count(
                 db,
-                select(func.count()).select_from(Resume).where(Resume.profession_id == item_id),
-            )
-            counts["вакансиях"] = await self._scalar_count(
-                db,
-                select(func.count()).select_from(Vacancy).where(Vacancy.profession_id == item_id),
+                select(func.count())
+                .select_from(Resume)
+                .where(Resume.profession_id == item_id),
             )
 
         elif catalog_name == "skills":
+            counts["вакансии"] = await self._scalar_count(
+                db,
+                select(func.count())
+                .select_from(vacancy_skills)
+                .where(vacancy_skills.c.skill_id == item_id),
+            )
             counts["резюме"] = await self._scalar_count(
                 db,
-                select(func.count()).select_from(resume_skills).where(resume_skills.c.skill_id == item_id),
-            )
-            counts["вакансиях"] = await self._scalar_count(
-                db,
-                select(func.count()).select_from(vacancy_skills).where(vacancy_skills.c.skill_id == item_id),
-            )
-
-        elif catalog_name == "currencies":
-            counts["вакансиях"] = await self._scalar_count(
-                db,
-                select(func.count()).select_from(Vacancy).where(Vacancy.currency_id == item_id),
-            )
-
-        elif catalog_name == "experiences":
-            counts["вакансиях"] = await self._scalar_count(
-                db,
-                select(func.count()).select_from(Vacancy).where(Vacancy.experience_id == item_id),
-            )
-
-        elif catalog_name == "statuses":
-            counts["вакансиях"] = await self._scalar_count(
-                db,
-                select(func.count()).select_from(Vacancy).where(Vacancy.status_id == item_id),
+                select(func.count())
+                .select_from(resume_skills)
+                .where(resume_skills.c.skill_id == item_id),
             )
 
         elif catalog_name == "work-schedules":
-            counts["вакансиях"] = await self._scalar_count(
+            counts["вакансии"] = await self._scalar_count(
                 db,
-                select(func.count()).select_from(Vacancy).where(Vacancy.work_schedule_id == item_id),
+                select(func.count())
+                .select_from(Vacancy)
+                .where(Vacancy.work_schedule_id == item_id),
             )
 
         elif catalog_name == "employment-types":
-            counts["вакансиях"] = await self._scalar_count(
+            counts["вакансии"] = await self._scalar_count(
                 db,
-                select(func.count()).select_from(Vacancy).where(Vacancy.employment_type_id == item_id),
+                select(func.count())
+                .select_from(Vacancy)
+                .where(Vacancy.employment_type_id == item_id),
+            )
+
+        elif catalog_name == "currencies":
+            counts["вакансии"] = await self._scalar_count(
+                db,
+                select(func.count())
+                .select_from(Vacancy)
+                .where(Vacancy.currency_id == item_id),
+            )
+
+        elif catalog_name == "experiences":
+            counts["вакансии"] = await self._scalar_count(
+                db,
+                select(func.count())
+                .select_from(Vacancy)
+                .where(Vacancy.experience_id == item_id),
+            )
+
+        elif catalog_name == "statuses":
+            counts["вакансии"] = await self._scalar_count(
+                db,
+                select(func.count())
+                .select_from(Vacancy)
+                .where(Vacancy.status_id == item_id),
             )
 
         elif catalog_name == "educational-institutions":
-            counts["образовании"] = await self._scalar_count(
+            counts["образование"] = await self._scalar_count(
                 db,
-                select(func.count()).select_from(Education).where(Education.institution_id == item_id),
+                select(func.count())
+                .select_from(Education)
+                .where(Education.institution_id == item_id),
+            )
+
+        elif catalog_name == "company-types":
+            counts["компании"] = await self._scalar_count(
+                db,
+                select(func.count())
+                .select_from(Company)
+                .where(Company.company_type_id == item_id),
             )
 
         return {key: value for key, value in counts.items() if value > 0}
@@ -195,34 +676,157 @@ class AdminService:
         search: Optional[str] = None,
     ):
         model = self._get_catalog_model(catalog_name)
-        stmt = select(model).order_by(model.id)
+
+        if catalog_name == "districts":
+            stmt = select(District).options(joinedload(District.region)).order_by(District.id)
+        elif catalog_name == "cities":
+            stmt = (
+                select(City)
+                .options(
+                    joinedload(City.district).joinedload(District.region),
+                    joinedload(City.settlement_type),
+                )
+                .order_by(City.id)
+            )
+        else:
+            stmt = select(model).order_by(model.id)
 
         if search:
             value = f"%{search.lower()}%"
-            stmt = stmt.where(
-                or_(
-                    func.lower(model.name).like(value),
-                    func.cast(model.id, String).like(value),
+
+            if catalog_name == "districts":
+                stmt = stmt.join(District.region).where(
+                    or_(
+                        func.lower(District.name).like(value),
+                        func.lower(Region.name).like(value),
+                        func.cast(District.id, String).like(value),
+                    )
                 )
-            )
+            elif catalog_name == "cities":
+                stmt = (
+                    stmt.join(City.district)
+                    .join(District.region)
+                    .join(City.settlement_type)
+                    .where(
+                        or_(
+                            func.lower(City.name).like(value),
+                            func.lower(District.name).like(value),
+                            func.lower(Region.name).like(value),
+                            func.lower(SettlementType.name).like(value),
+                            func.cast(City.id, String).like(value),
+                        )
+                    )
+                )
+            else:
+                stmt = stmt.where(
+                    or_(
+                        func.lower(model.name).like(value),
+                        func.cast(model.id, String).like(value),
+                    )
+                )
 
         result = await db.execute(stmt.offset(skip).limit(limit))
-        return result.scalars().all()
+        return result.scalars().unique().all()
 
-    async def create_catalog_item(self, db: AsyncSession, catalog_name: str, name: str):
+    async def _get_default_settlement_type(self, db: AsyncSession) -> SettlementType:
+        result = await db.execute(select(SettlementType).where(SettlementType.name == "г."))
+        settlement_type = result.scalar_one_or_none()
+
+        if settlement_type:
+            return settlement_type
+
+        settlement_type = SettlementType(name="г.")
+        db.add(settlement_type)
+        await db.flush()
+        return settlement_type
+
+    async def create_catalog_item(
+        self,
+        db: AsyncSession,
+        catalog_name: str,
+        name: str,
+        region_id: Optional[int] = None,
+        district_id: Optional[int] = None,
+        settlement_type_id: Optional[int] = None,
+    ):
         model = self._get_catalog_model(catalog_name)
-        instance = model(name=name.strip())
+        normalized_name = name.strip()
+
+        if catalog_name == "districts":
+            if not region_id:
+                raise HTTPException(status_code=422, detail="Выберите область")
+            if not await db.get(Region, region_id):
+                raise HTTPException(status_code=404, detail="Область не найдена")
+            instance = District(name=normalized_name, region_id=region_id)
+
+        elif catalog_name == "cities":
+            if not district_id:
+                raise HTTPException(status_code=422, detail="Выберите район")
+            if not await db.get(District, district_id):
+                raise HTTPException(status_code=404, detail="Район не найден")
+
+            if settlement_type_id:
+                settlement_type = await db.get(SettlementType, settlement_type_id)
+                if not settlement_type:
+                    raise HTTPException(status_code=404, detail="Тип населённого пункта не найден")
+            else:
+                settlement_type = await self._get_default_settlement_type(db)
+
+            instance = City(
+                name=normalized_name,
+                district_id=district_id,
+                settlement_type_id=settlement_type.id,
+            )
+
+        else:
+            instance = model(name=normalized_name)
+
         db.add(instance)
 
         try:
+            await db.flush()
+            instance_id = instance.id
             await db.commit()
-            await db.refresh(instance)
-            return instance
+            return await self.get_catalog_item(db, catalog_name, instance_id)
         except IntegrityError:
             await db.rollback()
-            raise HTTPException(status_code=409, detail="Элемент с таким названием уже существует")
+            raise HTTPException(status_code=409, detail="Элемент с такими данными уже существует")
 
-    async def update_catalog_item(self, db: AsyncSession, catalog_name: str, item_id: int, name: str):
+    async def get_catalog_item(self, db: AsyncSession, catalog_name: str, item_id: int):
+        model = self._get_catalog_model(catalog_name)
+
+        if catalog_name == "districts":
+            stmt = select(District).where(District.id == item_id).options(joinedload(District.region))
+        elif catalog_name == "cities":
+            stmt = (
+                select(City)
+                .where(City.id == item_id)
+                .options(
+                    joinedload(City.district).joinedload(District.region),
+                    joinedload(City.settlement_type),
+                )
+            )
+        else:
+            stmt = select(model).where(model.id == item_id)
+
+        result = await db.execute(stmt)
+        instance = result.scalar_one_or_none()
+
+        if not instance:
+            raise HTTPException(status_code=404, detail="Элемент справочника не найден")
+
+        return instance
+
+    async def update_catalog_item(
+        self,
+        db: AsyncSession,
+        catalog_name: str,
+        item_id: int,
+        name: str,
+        region_id: Optional[int] = None,
+        district_id: Optional[int] = None,
+        settlement_type_id: Optional[int] = None,
+    ):
         model = self._get_catalog_model(catalog_name)
         instance = await db.get(model, item_id)
 
@@ -231,15 +835,39 @@ class AdminService:
 
         instance.name = name.strip()
 
+        if catalog_name == "districts":
+            if not region_id:
+                raise HTTPException(status_code=422, detail="Выберите область")
+            if not await db.get(Region, region_id):
+                raise HTTPException(status_code=404, detail="Область не найдена")
+            instance.region_id = region_id
+
+        elif catalog_name == "cities":
+            if not district_id:
+                raise HTTPException(status_code=422, detail="Выберите район")
+            if not await db.get(District, district_id):
+                raise HTTPException(status_code=404, detail="Район не найден")
+            instance.district_id = district_id
+
+            if settlement_type_id:
+                if not await db.get(SettlementType, settlement_type_id):
+                    raise HTTPException(status_code=404, detail="Тип населённого пункта не найден")
+                instance.settlement_type_id = settlement_type_id
+
         try:
             await db.commit()
-            await db.refresh(instance)
-            return instance
+            return await self.get_catalog_item(db, catalog_name, item_id)
         except IntegrityError:
             await db.rollback()
-            raise HTTPException(status_code=409, detail="Элемент с таким названием уже существует")
+            raise HTTPException(status_code=409, detail="Элемент с такими данными уже существует")
 
-    async def delete_catalog_item(self, db: AsyncSession, catalog_name: str, item_id: int):
+    async def delete_catalog_item(
+        self,
+        db: AsyncSession,
+        catalog_name: str,
+        item_id: int,
+        force: bool = False,
+    ):
         model = self._get_catalog_model(catalog_name)
         instance = await db.get(model, item_id)
 
@@ -247,15 +875,39 @@ class AdminService:
             raise HTTPException(status_code=404, detail="Элемент справочника не найден")
 
         usages = await self._catalog_usage_counts(db, catalog_name, item_id)
-        if usages:
+
+        if usages and not force:
             usage_text = ", ".join(f"{name}: {count}" for name, count in usages.items())
+
             raise HTTPException(
                 status_code=409,
-                detail=f"Нельзя удалить элемент справочника, он используется в следующих сущностях: {usage_text}",
+                detail={
+                    "requires_confirmation": True,
+                    "catalog_name": catalog_name,
+                    "item_id": item_id,
+                    "item_name": instance.name,
+                    "usages": usages,
+                    "message": (
+                        f"Элемент «{instance.name}» используется: {usage_text}. "
+                        "При подтверждении связанные данные будут удалены или отвязаны."
+                    ),
+                },
             )
 
-        await db.delete(instance)
-        await db.commit()
+        try:
+            if force:
+                await self._force_delete_catalog_item(
+                    db=db,
+                    catalog_name=catalog_name,
+                    item_id=item_id,
+                )
+            else:
+                await db.delete(instance)
+
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
 
     async def get_dashboard(self, db: AsyncSession, period: str = "30d"):
         users_total = await self._scalar_count(db, select(func.count()).select_from(User))
@@ -341,16 +993,20 @@ class AdminService:
         registrations = list(registration_map.values())
 
         city_rows = await db.execute(
-            select(City.name, func.count(Applicant.id))
+            select(City, func.count(Applicant.id))
             .select_from(City)
+            .options(
+                joinedload(City.district).joinedload(District.region),
+                joinedload(City.settlement_type),
+            )
             .outerjoin(Applicant, Applicant.city_id == City.id)
-            .group_by(City.name)
+            .group_by(City.id)
             .order_by(func.count(Applicant.id).desc())
             .limit(8)
         )
         top_cities = [
-            {"key": name, "label": name, "value": int(count or 0)}
-            for name, count in city_rows.all()
+            {"key": str(city.id), "label": city.full_name, "value": int(count or 0)}
+            for city, count in city_rows.unique().all()
             if int(count or 0) > 0
         ]
 
@@ -492,7 +1148,8 @@ class AdminService:
             .options(
                 joinedload(Company.company_type),
                 joinedload(Company.user),
-                selectinload(Company.cities),
+                selectinload(Company.cities).joinedload(City.district).joinedload(District.region),
+                selectinload(Company.cities).joinedload(City.settlement_type),
                 selectinload(Company.vacancies),
             )
             .order_by(Company.id)
@@ -529,7 +1186,8 @@ class AdminService:
             .options(
                 joinedload(Company.company_type),
                 joinedload(Company.user),
-                selectinload(Company.cities),
+                selectinload(Company.cities).joinedload(City.district).joinedload(District.region),
+                selectinload(Company.cities).joinedload(City.settlement_type),
                 selectinload(Company.vacancies).joinedload(Vacancy.status),
             )
         )
@@ -575,7 +1233,8 @@ class AdminService:
         stmt = (
             select(Applicant)
             .options(
-                selectinload(Applicant.city),
+                selectinload(Applicant.city).joinedload(City.district).joinedload(District.region),
+                selectinload(Applicant.city).joinedload(City.settlement_type),
                 selectinload(Applicant.user),
                 selectinload(Applicant.resumes),
                 selectinload(Applicant.educations),
@@ -620,7 +1279,8 @@ class AdminService:
             select(Applicant)
             .where(Applicant.id == applicant_id)
             .options(
-                joinedload(Applicant.city),
+                joinedload(Applicant.city).joinedload(City.district).joinedload(District.region),
+                joinedload(Applicant.city).joinedload(City.settlement_type),
                 joinedload(Applicant.user),
                 selectinload(Applicant.educations).joinedload(Education.institution),
                 selectinload(Applicant.resumes).joinedload(Resume.profession),
@@ -673,7 +1333,8 @@ class AdminService:
             select(Vacancy)
             .options(
                 joinedload(Vacancy.company),
-                joinedload(Vacancy.city),
+                joinedload(Vacancy.city).joinedload(City.district).joinedload(District.region),
+                joinedload(Vacancy.city).joinedload(City.settlement_type),
                 joinedload(Vacancy.profession),
                 joinedload(Vacancy.employment_type),
                 joinedload(Vacancy.work_schedule),
@@ -714,7 +1375,8 @@ class AdminService:
             .where(Vacancy.id == vacancy_id)
             .options(
                 joinedload(Vacancy.company),
-                joinedload(Vacancy.city),
+                joinedload(Vacancy.city).joinedload(City.district).joinedload(District.region),
+                joinedload(Vacancy.city).joinedload(City.settlement_type),
                 joinedload(Vacancy.profession),
                 joinedload(Vacancy.employment_type),
                 joinedload(Vacancy.work_schedule),
@@ -790,7 +1452,8 @@ class AdminService:
             .join(Application.resume)
             .options(
                 joinedload(Application.vacancy).joinedload(Vacancy.company),
-                joinedload(Application.vacancy).joinedload(Vacancy.city),
+                joinedload(Application.vacancy).joinedload(Vacancy.city).joinedload(City.district).joinedload(District.region),
+                joinedload(Vacancy.city).joinedload(City.settlement_type),
                 joinedload(Application.resume).joinedload(Resume.profession),
                 joinedload(Application.resume).joinedload(Resume.applicant),
             )
@@ -815,7 +1478,8 @@ class AdminService:
             .where(Application.vacancy_id == vacancy_id, Application.resume_id == resume_id)
             .options(
                 joinedload(Application.vacancy).joinedload(Vacancy.company),
-                joinedload(Application.vacancy).joinedload(Vacancy.city),
+                joinedload(Application.vacancy).joinedload(Vacancy.city).joinedload(City.district).joinedload(District.region),
+                joinedload(Vacancy.city).joinedload(City.settlement_type),
                 joinedload(Application.resume).joinedload(Resume.profession),
                 joinedload(Application.resume).joinedload(Resume.applicant),
             )
@@ -1008,4 +1672,4 @@ class AdminService:
         await db.commit()
 
 
-admin_service = AdminService()
+admin_service = AdminService() 

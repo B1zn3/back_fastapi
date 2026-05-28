@@ -60,9 +60,13 @@ async def get_current_applicant(
 
 @applicant_router.get("/me", response_model=ApplicantResponse)
 async def get_applicant_profile(
-    applicant=Depends(get_current_applicant),
+    current_user: User = Depends(require_role("applicant")),
+    db: AsyncSession = Depends(get_db),
 ):
-    return applicant
+    return await applicant_service.get_profile(
+        db=db,
+        user_id=current_user.id,
+    )
 
 
 @applicant_router.put("/me", response_model=ApplicantResponse)

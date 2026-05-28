@@ -8,7 +8,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
 from src.core.constants import ApplicationStatus
 from src.models.model import (
@@ -18,6 +18,7 @@ from src.models.model import (
     Company,
     CompanyType,
     Currency,
+    District,
     Education,
     EmploymentType,
     Experience,
@@ -57,7 +58,14 @@ class CompanyService:
             .where(User.id == user_id)
             .options(
                 selectinload(Company.company_type),
-                selectinload(Company.cities),
+
+                selectinload(Company.cities)
+                .joinedload(City.district)
+                .joinedload(District.region),
+
+                selectinload(Company.cities)
+                .joinedload(City.settlement_type),
+
                 selectinload(Company.vacancies).selectinload(Vacancy.profession),
                 selectinload(Company.vacancies).selectinload(Vacancy.city),
                 selectinload(Company.vacancies).selectinload(Vacancy.employment_type),
@@ -82,7 +90,14 @@ class CompanyService:
             .where(Company.id == company_id)
             .options(
                 selectinload(Company.company_type),
-                selectinload(Company.cities),
+
+                selectinload(Company.cities)
+                .joinedload(City.district)
+                .joinedload(District.region),
+
+                selectinload(Company.cities)
+                .joinedload(City.settlement_type),
+
                 selectinload(Company.vacancies).selectinload(Vacancy.profession),
                 selectinload(Company.vacancies).selectinload(Vacancy.city),
                 selectinload(Company.vacancies).selectinload(Vacancy.employment_type),
@@ -423,7 +438,43 @@ class CompanyService:
         }, reasons
 
     # ---------- mappers ----------
+    @staticmethod
+    def _format_city_full_name(city: City) -> str:
+        settlement_type = city.settlement_type.name if city.settlement_type else ""
+        district = city.district.name if city.district else ""
+        region = city.district.region.name if city.district and city.district.region else ""
 
+        title = f"{settlement_type} {city.name}".strip()
+
+        parts = [
+            title,
+            district,
+            region,
+        ]
+
+        return ", ".join(part for part in parts if part)
+
+    def _city_to_dict(self, city: City) -> dict:
+        return {
+            "id": city.id,
+            "name": city.name,
+            "full_name": self._format_city_full_name(city),
+            "district_id": city.district_id,
+            "district_name": city.district.name if city.district else None,
+            "region_id": city.district.region_id if city.district else None,
+            "region_name": (
+                city.district.region.name
+                if city.district and city.district.region
+                else None
+            ),
+            "settlement_type_id": city.settlement_type_id,
+            "settlement_type_name": (
+                city.settlement_type.name
+                if city.settlement_type
+                else None
+            ),
+        }
+    
     def map_vacancy(self, vacancy: Vacancy) -> dict:
         return {
             "id": vacancy.id,
@@ -460,6 +511,8 @@ class CompanyService:
         }
 
     def map_company(self, company: Company) -> dict:
+        cities = list(company.cities or [])
+
         return {
             "id": company.id,
             "name": company.name,
@@ -468,9 +521,26 @@ class CompanyService:
             "logo": company.logo,
             "founded_year": company.founded_year,
             "employee_count": company.employee_count,
+
             "company_type_id": company.company_type_id,
             "company_type_name": company.company_type.name if company.company_type else None,
-            "cities": [city.name for city in company.cities or []],
+
+            # Для совместимости со старым фронтом
+            "city_names": [
+                self._format_city_full_name(city)
+                for city in cities
+            ],
+
+            # Для нового фронта офисов
+            "city_ids": [
+                city.id
+                for city in cities
+            ],
+            "cities": [
+                self._city_to_dict(city)
+                for city in cities
+            ],
+
             "vacancies": [
                 self.map_vacancy(vacancy)
                 for vacancy in company.vacancies or []
@@ -603,9 +673,14 @@ class CompanyService:
 
                 if unique_city_ids:
                     result = await db.execute(
-                        select(City).where(City.id.in_(unique_city_ids))
+                        select(City)
+                        .where(City.id.in_(unique_city_ids))
+                        .options(
+                            joinedload(City.district).joinedload(District.region),
+                            joinedload(City.settlement_type),
+                        )
                     )
-                    cities = result.scalars().all()
+                    cities = result.scalars().unique().all()
 
                     if len(cities) != len(unique_city_ids):
                         raise HTTPException(

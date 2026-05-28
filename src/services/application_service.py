@@ -1,21 +1,25 @@
 from datetime import datetime, timezone
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from src.cruds.application_crud import applicationcrud
-from src.cruds.company_cruds.vacancy_crud import vacancycrud
-from src.cruds.applicant_cruds.resume_crud import resumecrud
-from src.schemas.application_schema import ApplicationCreate
+from src.core.constants import ApplicationStatus
 from src.core.exceptions import (
-    VacancyNotFoundError,
-    ResumeNotFoundError,
-    DuplicateApplicationError,
     AccessDeniedError,
     ApplicationNotFoundError,
+    DuplicateApplicationError,
+    ResumeNotFoundError,
+    VacancyNotFoundError,
 )
+from src.cruds.applicant_cruds.resume_crud import resumecrud
+from src.cruds.application_crud import applicationcrud
+from src.cruds.chat.chat_crud import chatcrud
+from src.cruds.company_cruds.vacancy_crud import vacancycrud
+from src.models.model import Application, Resume, Vacancy
 from src.redis.cache_service import cache_service
 from src.redis.lock_service import lock_service
-from src.core.constants import ApplicationStatus
+from src.schemas.application_schema import ApplicationCreate
 from src.utils.logger import logger
 
 
@@ -28,17 +32,25 @@ class ApplicationService:
         self.applicationcrud = applicationcrud
         self.vacancycrud = vacancycrud
         self.resumecrud = resumecrud
+        self.chatcrud = chatcrud
 
     async def _invalidate_vacancy_cache(self, vacancy_id: int):
         await cache_service.delete(f"vacancy:applications:{vacancy_id}")
 
     async def _get_vacancy_or_raise(self, db: AsyncSession, vacancy_id: int):
         vacancy = await self.vacancycrud.get(db, vacancy_id)
+
         if not vacancy:
             raise VacancyNotFoundError()
+
         return vacancy
 
-    async def _get_resume_or_raise(self, db: AsyncSession, resume_id: int, applicant_id: int):
+    async def _get_resume_or_raise(
+        self,
+        db: AsyncSession,
+        resume_id: int,
+        applicant_id: int,
+    ):
         resume = await self.resumecrud.get(db, resume_id)
 
         if not resume:
@@ -48,6 +60,44 @@ class ApplicationService:
             raise AccessDeniedError("Резюме не принадлежит текущему пользователю")
 
         return resume
+
+    async def _get_default_resume_or_raise(
+        self,
+        db: AsyncSession,
+        applicant_id: int,
+    ):
+        result = await db.execute(
+            select(Resume)
+            .where(Resume.applicant_id == applicant_id)
+            .order_by(Resume.created_at.desc())
+            .limit(1)
+        )
+
+        resume = result.scalar_one_or_none()
+
+        if not resume:
+            raise ResumeNotFoundError("У соискателя нет резюме")
+
+        return resume
+
+    async def _get_application_with_details(
+        self,
+        db: AsyncSession,
+        application_id: int,
+    ):
+        result = await db.execute(
+            select(Application)
+            .where(Application.id == application_id)
+            .options(
+                selectinload(Application.vacancy).selectinload(Vacancy.company),
+                selectinload(Application.vacancy).selectinload(Vacancy.city),
+                selectinload(Application.vacancy).selectinload(Vacancy.profession),
+                selectinload(Application.vacancy).selectinload(Vacancy.currency),
+                selectinload(Application.resume).selectinload(Resume.profession),
+            )
+        )
+
+        return result.scalar_one_or_none()
 
     def _normalize_cover_letter(self, value: str | None) -> str | None:
         if value is None:
@@ -76,6 +126,9 @@ class ApplicationService:
         return "Можно откликнуться"
 
     def _serialize_application(self, application):
+        if not application:
+            return None
+
         vacancy = application.vacancy
         resume = application.resume
 
@@ -120,57 +173,84 @@ class ApplicationService:
         applicant_id: int,
         application_data: ApplicationCreate,
     ):
-        await self._get_vacancy_or_raise(db, application_data.vacancy_id)
-
-        resume = await self._get_resume_or_raise(
-            db,
-            application_data.resume_id,
-            applicant_id,
+        vacancy = await self._get_vacancy_or_raise(
+            db=db,
+            vacancy_id=application_data.vacancy_id,
         )
 
-        lock_key = f"application_lock:{application_data.vacancy_id}:{applicant_id}"
+        if application_data.resume_id is not None:
+            resume = await self._get_resume_or_raise(
+                db=db,
+                resume_id=application_data.resume_id,
+                applicant_id=applicant_id,
+            )
+        else:
+            resume = await self._get_default_resume_or_raise(
+                db=db,
+                applicant_id=applicant_id,
+            )
+
+        lock_key = f"application_lock:{application_data.vacancy_id}:{resume.id}"
 
         if not await lock_service.acquire_lock(lock_key):
             raise DuplicateApplicationError("Обработка отклика уже выполняется")
 
         try:
-            existing = await self.applicationcrud.get_by_vacancy_and_applicant(
-                db,
-                application_data.vacancy_id,
-                applicant_id,
+            existing = await self.applicationcrud.get_by_vacancy_and_resume(
+                db=db,
+                vacancy_id=application_data.vacancy_id,
+                resume_id=resume.id,
             )
 
             if existing:
-                raise DuplicateApplicationError("Вы уже откликались на эту вакансию")
+                raise DuplicateApplicationError(
+                    "Вы уже откликались на эту вакансию этим резюме"
+                )
 
             now = utc_now_naive()
 
-            application_dict = {
+            app_dict = {
                 "vacancy_id": application_data.vacancy_id,
                 "resume_id": resume.id,
-                "status": ApplicationStatus.PENDING.value,
-                "cover_letter": self._normalize_cover_letter(application_data.cover_letter),
+                "status": self._status_value(ApplicationStatus.PENDING),
+                "cover_letter": self._normalize_cover_letter(
+                    application_data.cover_letter
+                ),
                 "created_at": now,
                 "updated_at": now,
             }
 
-            application = await self.applicationcrud.create(db, application_dict)
+            application = await self.applicationcrud.create(
+                db=db,
+                obj_data=app_dict,
+            )
+
+            chat_dict = {
+                "application_id": application.id,
+                "created_at": now,
+            }
+
+            await self.chatcrud.create(
+                db=db,
+                obj_data=chat_dict,
+            )
 
             await self._invalidate_vacancy_cache(application_data.vacancy_id)
+
             await db.commit()
 
-            created_application = await self.applicationcrud.get_by_vacancy_and_resume(
-                db,
-                application.vacancy_id,
-                application.resume_id,
+            created_application = await self._get_application_with_details(
+                db=db,
+                application_id=application.id,
             )
 
             logger.info(
                 f"Applicant {applicant_id} applied to vacancy "
-                f"{application_data.vacancy_id} with resume {resume.id}"
+                f"{application_data.vacancy_id} with resume {resume.id}; "
+                f"chat created for application {application.id}"
             )
 
-            return self._serialize_application(created_application or application)
+            return self._serialize_application(created_application)
 
         except Exception:
             await db.rollback()
@@ -188,9 +268,9 @@ class ApplicationService:
         await self._get_vacancy_or_raise(db, vacancy_id)
 
         application = await self.applicationcrud.get_by_vacancy_and_applicant(
-            db,
-            vacancy_id,
-            applicant_id,
+            db=db,
+            vacancy_id=vacancy_id,
+            applicant_id=applicant_id,
         )
 
         if not application:
@@ -225,13 +305,16 @@ class ApplicationService:
         limit: int = 10,
     ):
         applications = await self.applicationcrud.get_by_applicant(
-            db,
-            applicant_id,
+            db=db,
+            applicant_id=applicant_id,
             skip=skip,
             limit=limit,
         )
 
-        return [self._serialize_application(application) for application in applications]
+        return [
+            self._serialize_application(application)
+            for application in applications
+        ]
 
     async def get_vacancy_applications(
         self,
@@ -241,19 +324,25 @@ class ApplicationService:
         skip: int = 0,
         limit: int = 10,
     ):
-        vacancy = await self._get_vacancy_or_raise(db, vacancy_id)
+        vacancy = await self._get_vacancy_or_raise(
+            db=db,
+            vacancy_id=vacancy_id,
+        )
 
         if vacancy.company_id != company_id:
             raise AccessDeniedError("Вакансия не принадлежит вашей компании")
 
         applications = await self.applicationcrud.get_by_vacancy(
-            db,
-            vacancy_id,
+            db=db,
+            vacancy_id=vacancy_id,
             skip=skip,
             limit=limit,
         )
 
-        return [self._serialize_application(application) for application in applications]
+        return [
+            self._serialize_application(application)
+            for application in applications
+        ]
 
     async def update_application_status(
         self,
@@ -263,15 +352,18 @@ class ApplicationService:
         company_id: int,
         status: ApplicationStatus,
     ):
-        vacancy = await self._get_vacancy_or_raise(db, vacancy_id)
+        vacancy = await self._get_vacancy_or_raise(
+            db=db,
+            vacancy_id=vacancy_id,
+        )
 
         if vacancy.company_id != company_id:
             raise AccessDeniedError("Вакансия не принадлежит вашей компании")
 
         application = await self.applicationcrud.get_by_vacancy_and_resume(
-            db,
-            vacancy_id,
-            resume_id,
+            db=db,
+            vacancy_id=vacancy_id,
+            resume_id=resume_id,
         )
 
         if not application:
@@ -284,9 +376,9 @@ class ApplicationService:
         await db.commit()
 
         updated_application = await self.applicationcrud.get_by_vacancy_and_resume(
-            db,
-            vacancy_id,
-            resume_id,
+            db=db,
+            vacancy_id=vacancy_id,
+            resume_id=resume_id,
         )
 
         return self._serialize_application(updated_application or application)

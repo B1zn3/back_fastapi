@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 
 from src.cruds.applicant_cruds.applicant_crud import applicantcrud
 from src.cruds.applicant_cruds.education_crud import educationcrud
@@ -16,11 +17,23 @@ from src.cruds.company_cruds.vacancy_crud import vacancycrud
 from src.cruds.educational_institution_crud import educationalinstitutioncrud
 from src.cruds.profession_crud import professioncrud
 from src.cruds.skill_crud import skillcrud
-from src.models.model import Applicant, Education, FavoriteVacancy, Resume, Vacancy, WorkExperience
+from src.models.model import (
+    Applicant,
+    City,
+    District,
+    Education,
+    FavoriteVacancy,
+    Resume,
+    Vacancy,
+    WorkExperience,
+)
 from src.schemas.applicant_schemas.applicant_schema import ApplicantUpdate
 from src.schemas.applicant_schemas.education_schema import EducationCreate, EducationUpdate
 from src.schemas.applicant_schemas.resume_schema import ResumeCreate, ResumeUpdate
-from src.schemas.applicant_schemas.work_experience_schema import WorkExperienceCreate, WorkExperienceUpdate
+from src.schemas.applicant_schemas.work_experience_schema import (
+    WorkExperienceCreate,
+    WorkExperienceUpdate,
+)
 from src.core.exceptions import (
     AccessDeniedError,
     ApplicantNotFoundError,
@@ -50,12 +63,96 @@ class ApplicantService:
 
     # ---------- Вспомогательные методы ----------
 
+    @staticmethod
+    def _format_city_full_name(city: City) -> str:
+        settlement_type = city.settlement_type.name if city.settlement_type else ""
+        district = city.district.name if city.district else ""
+        region = city.district.region.name if city.district and city.district.region else ""
+
+        title = f"{settlement_type} {city.name}".strip()
+
+        parts = [
+            title,
+            district,
+            region,
+        ]
+
+        return ", ".join(part for part in parts if part)
+
+    def _city_to_dict(self, city: City | None) -> dict | None:
+        if not city:
+            return None
+
+        return {
+            "id": city.id,
+            "name": city.name,
+            "full_name": self._format_city_full_name(city),
+            "region_id": city.district.region_id if city.district else None,
+            "region_name": (
+                city.district.region.name
+                if city.district and city.district.region
+                else None
+            ),
+            "district_id": city.district_id,
+            "district_name": city.district.name if city.district else None,
+            "settlement_type_id": city.settlement_type_id,
+            "settlement_type_name": (
+                city.settlement_type.name
+                if city.settlement_type
+                else None
+            ),
+        }
+
+    def _applicant_to_dict(self, applicant: Applicant) -> dict:
+        return {
+            "id": applicant.id,
+            "photo": applicant.photo,
+            "phone": applicant.phone,
+            "birth_date": applicant.birth_date,
+            "gender": applicant.gender,
+            "first_name": applicant.first_name,
+            "last_name": applicant.last_name,
+            "middle_name": applicant.middle_name,
+            "city": self._city_to_dict(applicant.city),
+            "resumes": applicant.resumes or [],
+            "educations": applicant.educations or [],
+        }
+
     async def _get_applicant_or_raise(
         self,
         db: AsyncSession,
         user_id: int,
     ) -> Applicant:
         applicant = await self.applicantcrud.get_by_user_id_with_details(db, user_id)
+
+        if not applicant:
+            raise ApplicantNotFoundError()
+
+        return applicant
+
+    async def _get_applicant_with_details_for_response(
+        self,
+        db: AsyncSession,
+        applicant_id: int,
+    ) -> Applicant:
+        result = await db.execute(
+            select(Applicant)
+            .where(Applicant.id == applicant_id)
+            .options(
+                joinedload(Applicant.city)
+                .joinedload(City.district)
+                .joinedload(District.region),
+                joinedload(Applicant.city).joinedload(City.settlement_type),
+
+                selectinload(Applicant.resumes).joinedload(Resume.profession),
+                selectinload(Applicant.resumes).selectinload(Resume.skills),
+                selectinload(Applicant.resumes).selectinload(Resume.work_experiences),
+
+                selectinload(Applicant.educations).joinedload(Education.institution),
+            )
+        )
+
+        applicant = result.scalar_one_or_none()
 
         if not applicant:
             raise ApplicantNotFoundError()
@@ -154,22 +251,26 @@ class ApplicantService:
         self,
         db: AsyncSession,
         user_id: int,
-    ) -> Applicant:
-        return await self._get_applicant_or_raise(db, user_id)
+    ) -> dict:
+        applicant = await self._get_applicant_or_raise(db, user_id)
+
+        applicant_with_details = await self._get_applicant_with_details_for_response(
+            db=db,
+            applicant_id=applicant.id,
+        )
+
+        return self._applicant_to_dict(applicant_with_details)
 
     async def update_profile(
         self,
         db: AsyncSession,
         user_id: int,
         update_data: ApplicantUpdate,
-    ) -> Applicant:
+    ) -> dict:
         applicant = await self._get_applicant_or_raise(db, user_id)
 
         try:
-            update_payload = update_data.model_dump(
-                exclude_unset=True,
-                exclude={"city_name"},
-            )
+            update_payload = update_data.model_dump(exclude_unset=True)
 
             if "phone" in update_payload:
                 raw_phone = update_payload.get("phone")
@@ -202,22 +303,44 @@ class ApplicantService:
                 else:
                     update_payload["phone"] = None
 
-            profile_was_changed = bool(update_payload) or bool(update_data.city_name)
+            city_was_changed = False
+
+            if "city_id" in update_payload:
+                city_id = update_payload.pop("city_id")
+                city_was_changed = True
+
+                if city_id is None:
+                    applicant.city_id = None
+                else:
+                    city_result = await db.execute(
+                        select(City.id).where(City.id == city_id)
+                    )
+                    existing_city_id = city_result.scalar_one_or_none()
+
+                    if not existing_city_id:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Город не найден.",
+                        )
+
+                    applicant.city_id = city_id
 
             for field, value in update_payload.items():
                 setattr(applicant, field, value)
 
-            if update_data.city_name:
-                city = await self.citycrud.get_or_create(db, update_data.city_name)
-                applicant.city_id = city.id
+            profile_was_changed = bool(update_payload) or city_was_changed
 
             if profile_was_changed:
                 await self._touch_all_applicant_resumes(db, applicant.id)
 
             await db.commit()
-            await db.refresh(applicant, ["city"])
 
-            return applicant
+            updated_applicant = await self._get_applicant_with_details_for_response(
+                db=db,
+                applicant_id=applicant.id,
+            )
+
+            return self._applicant_to_dict(updated_applicant)
 
         except HTTPException:
             await db.rollback()
@@ -706,6 +829,26 @@ class ApplicantService:
         if not vacancy:
             return None
 
+        city_full_name = None
+
+        if vacancy.city:
+            settlement_type = (
+                vacancy.city.settlement_type.name
+                if vacancy.city.settlement_type
+                else ""
+            )
+            district = vacancy.city.district.name if vacancy.city.district else ""
+            region = (
+                vacancy.city.district.region.name
+                if vacancy.city.district and vacancy.city.district.region
+                else ""
+            )
+
+            city_title = f"{settlement_type} {vacancy.city.name}".strip()
+            city_full_name = ", ".join(
+                part for part in [city_title, district, region] if part
+            )
+
         return {
             "id": vacancy.id,
             "title": vacancy.title,
@@ -716,6 +859,8 @@ class ApplicantService:
             "company_name": vacancy.company.name if vacancy.company else None,
             "city_id": vacancy.city_id,
             "city_name": vacancy.city.name if vacancy.city else None,
+            "city_full_name": city_full_name,
+            "city": self._city_to_dict(vacancy.city) if vacancy.city else None,
             "profession_id": vacancy.profession_id,
             "profession_name": vacancy.profession.name if vacancy.profession else None,
             "employment_type_id": vacancy.employment_type_id,

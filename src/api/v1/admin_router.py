@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.deps.db_deps import get_db
 from src.deps.role_checker import require_role
-from src.models.model import Applicant, Application, Company, Resume, User, Vacancy
+from src.models.model import Applicant, Application, City, Company, District, Resume, User, Vacancy
 from src.schemas.admin_schema import (
     AdminCreateRequest,
     AdminDeleteRequest,
@@ -44,6 +44,30 @@ from src.schemas.admin_schema import (
 from src.services.admin_service import admin_service
 
 admin_router = APIRouter(prefix="/admin", tags=["Администрирование"])
+
+
+def map_city_name(city: City | None) -> str | None:
+    if not city:
+        return None
+    return city.full_name or city.name
+
+
+def map_catalog_item(item) -> CatalogItemResponse:
+    region = getattr(item, "region", None)
+    district = getattr(item, "district", None)
+    settlement_type = getattr(item, "settlement_type", None)
+
+    return CatalogItemResponse(
+        id=item.id,
+        name=item.name,
+        region_id=getattr(item, "region_id", None) or (region.id if region else None),
+        region_name=region.name if region else (district.region.name if district and district.region else None),
+        district_id=getattr(item, "district_id", None),
+        district_name=district.name if district else None,
+        settlement_type_id=getattr(item, "settlement_type_id", None),
+        settlement_type_name=settlement_type.name if settlement_type else None,
+        full_name=getattr(item, "full_name", None),
+    )
 
 
 def map_user(user: User) -> UserAdminResponse:
@@ -102,7 +126,7 @@ def map_company_list(company: Company) -> CompanyAdminListItem:
         name=company.name,
         website=company.website,
         company_type_name=company.company_type.name if company.company_type else None,
-        cities=[city.name for city in company.cities or []],
+        cities=[map_city_name(city) or city.name for city in company.cities or []],
         vacancies_count=len(company.vacancies or []),
         user_id=company.user.id if company.user else None,
         user_email=company.user.email if company.user else None,
@@ -146,7 +170,7 @@ def map_applicant_list(applicant: Applicant) -> ApplicantAdminListItem:
         full_name=full_name,
         email=applicant.user.email if applicant.user else None,
         phone=applicant.phone,
-        city_name=applicant.city.name if applicant.city else None,
+        city_name=map_city_name(applicant.city),
         resumes_count=len(applicant.resumes or []),
         educations_count=len(applicant.educations or []),
         is_active=applicant.user.is_active if applicant.user else True,
@@ -205,7 +229,7 @@ def map_vacancy(vacancy: Vacancy) -> VacancyAdminDetailResponse:
         status_id=vacancy.status_id,
 
         company_name=vacancy.company.name if vacancy.company else None,
-        city_name=vacancy.city.name if vacancy.city else None,
+        city_name=map_city_name(vacancy.city),
         profession_name=vacancy.profession.name if vacancy.profession else None,
         status_name=vacancy.status.name if vacancy.status else None,
 
@@ -262,7 +286,7 @@ def map_application_detail(application: Application) -> ApplicationAdminDetailRe
 
     return ApplicationAdminDetailResponse(
         **base.model_dump(),
-        city_name=application.vacancy.city.name if application.vacancy and application.vacancy.city else None,
+        city_name=map_city_name(application.vacancy.city) if application.vacancy else None,
         salary_min=application.vacancy.salary_min if application.vacancy else None,
         salary_max=application.vacancy.salary_max if application.vacancy else None,
         cover_letter=application.cover_letter,
@@ -356,7 +380,8 @@ async def list_catalog_items(
     _: User = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    return await admin_service.list_catalog_items(db, catalog_name, skip, limit, search)
+    items = await admin_service.list_catalog_items(db, catalog_name, skip, limit, search)
+    return [map_catalog_item(item) for item in items]
 
 
 @admin_router.get("/admins", response_model=list[AdminListItemResponse])
@@ -679,3 +704,67 @@ async def update_application_status(
 ):
     application = await admin_service.update_application_status(db, vacancy_id, resume_id, payload.status)
     return map_application_detail(application)
+
+@admin_router.post(
+    "/catalogs/{catalog_name}",
+    response_model=CatalogItemResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_catalog_item(
+    catalog_name: str,
+    payload: CatalogItemCreate,
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    item = await admin_service.create_catalog_item(
+        db,
+        catalog_name,
+        payload.name,
+        region_id=payload.region_id,
+        district_id=payload.district_id,
+        settlement_type_id=payload.settlement_type_id,
+    )
+
+    return map_catalog_item(item)
+
+
+@admin_router.put(
+    "/catalogs/{catalog_name}/{item_id}",
+    response_model=CatalogItemResponse,
+)
+async def update_catalog_item(
+    catalog_name: str,
+    item_id: int,
+    payload: CatalogItemUpdate,
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    item = await admin_service.update_catalog_item(
+        db,
+        catalog_name,
+        item_id,
+        payload.name,
+        region_id=payload.region_id,
+        district_id=payload.district_id,
+        settlement_type_id=payload.settlement_type_id,
+    )
+
+    return map_catalog_item(item)
+
+
+@admin_router.delete("/catalogs/{catalog_name}/{item_id}")
+async def delete_catalog_item(
+    catalog_name: str,
+    item_id: int,
+    force: bool = Query(False),
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    await admin_service.delete_catalog_item(
+        db=db,
+        catalog_name=catalog_name,
+        item_id=item_id,
+        force=force,
+    )
+
+    return {"message": "Элемент справочника удалён"}

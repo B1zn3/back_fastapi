@@ -9,10 +9,13 @@ from src.models.model import (
     City,
     Company,
     Currency,
+    District,
     EducationalInstitution,
     EmploymentType,
     Experience,
     Profession,
+    Region,
+    SettlementType,
     Skill,
     Status,
     Vacancy,
@@ -25,7 +28,9 @@ class PublicService:
     active_status_name = "Активна"
 
     catalog_map = {
-        "cities": City,
+        "regions": Region,
+        "districts": District,
+        "settlement-types": SettlementType,
         "professions": Profession,
         "experiences": Experience,
         "work-schedules": WorkSchedule,
@@ -34,8 +39,6 @@ class PublicService:
         "skills": Skill,
         "currencies": Currency,
         "statuses": Status,
-        
-
     }
 
     @staticmethod
@@ -44,26 +47,251 @@ class PublicService:
             return []
 
         ids: list[int] = []
+
         for item in value.split(","):
             item = item.strip()
-            if not item:
-                continue
-            if item.isdigit():
+
+            if item and item.isdigit():
                 ids.append(int(item))
 
         return ids
 
-    async def get_catalog_items(self, db: AsyncSession, catalog_name: str, skip: int, limit: int):
+    @staticmethod
+    def _format_city_full_name(city: City | None) -> Optional[str]:
+        if not city:
+            return None
+
+        settlement_type = city.settlement_type.name if city.settlement_type else ""
+        district = city.district.name if city.district else ""
+        region = city.district.region.name if city.district and city.district.region else ""
+
+        title = f"{settlement_type} {city.name}".strip()
+
+        parts = [
+            title,
+            district,
+            region,
+        ]
+
+        return ", ".join(part for part in parts if part)
+
+    def _city_to_dict(self, city: City | None) -> Optional[dict]:
+        if not city:
+            return None
+
+        return {
+            "id": city.id,
+            "name": city.name,
+            "district_id": city.district_id,
+            "district_name": city.district.name if city.district else None,
+            "region_id": city.district.region_id if city.district else None,
+            "region_name": (
+                city.district.region.name
+                if city.district and city.district.region
+                else None
+            ),
+            "settlement_type_id": city.settlement_type_id,
+            "settlement_type_name": (
+                city.settlement_type.name
+                if city.settlement_type
+                else None
+            ),
+            "full_name": self._format_city_full_name(city),
+        }
+
+    def _company_city_names(self, company: Company | None) -> list[str]:
+        if not company:
+            return []
+
+        return [
+            full_name
+            for full_name in (
+                self._format_city_full_name(city)
+                for city in company.cities or []
+            )
+            if full_name
+        ]
+
+    def _company_cities(self, company: Company | None) -> list[dict]:
+        if not company:
+            return []
+
+        return [
+            city_dict
+            for city_dict in (
+                self._city_to_dict(city)
+                for city in company.cities or []
+            )
+            if city_dict
+        ]
+
+    def _map_vacancy_list_item(self, vacancy: Vacancy) -> dict:
+        city_full_name = self._format_city_full_name(vacancy.city)
+
+        return {
+            "id": vacancy.id,
+            "title": vacancy.title,
+            "description": vacancy.description,
+            "salary_min": vacancy.salary_min,
+            "salary_max": vacancy.salary_max,
+            "created_at": vacancy.created_at,
+
+            "company_id": vacancy.company_id,
+            "company_name": vacancy.company.name if vacancy.company else None,
+
+            "city_id": vacancy.city_id,
+            "city_name": city_full_name,
+            "city_full_name": city_full_name,
+            "city": self._city_to_dict(vacancy.city),
+
+            "profession_name": vacancy.profession.name if vacancy.profession else None,
+            "employment_type": vacancy.employment_type.name if vacancy.employment_type else None,
+            "work_schedule": vacancy.work_schedule.name if vacancy.work_schedule else None,
+            "experience": vacancy.experience.name if vacancy.experience else None,
+            "currency": vacancy.currency.name if vacancy.currency else None,
+            "skills": [skill.name for skill in vacancy.skills] if vacancy.skills else [],
+        }
+
+    def _map_vacancy_detail(self, vacancy: Vacancy) -> dict:
+        company = vacancy.company
+        city_full_name = self._format_city_full_name(vacancy.city)
+
+        return {
+            "id": vacancy.id,
+            "title": vacancy.title,
+            "description": vacancy.description,
+            "salary_min": vacancy.salary_min,
+            "salary_max": vacancy.salary_max,
+            "created_at": vacancy.created_at,
+            "updated_at": vacancy.updated_at,
+
+            "company_id": vacancy.company_id,
+            "company_name": company.name if company else None,
+
+            "city_id": vacancy.city_id,
+            "city_name": city_full_name,
+            "city_full_name": city_full_name,
+            "city": self._city_to_dict(vacancy.city),
+
+            "profession_name": vacancy.profession.name if vacancy.profession else None,
+            "employment_type": vacancy.employment_type.name if vacancy.employment_type else None,
+            "work_schedule": vacancy.work_schedule.name if vacancy.work_schedule else None,
+            "currency": vacancy.currency.name if vacancy.currency else None,
+            "experience": vacancy.experience.name if vacancy.experience else None,
+            "skills": [skill.name for skill in vacancy.skills] if vacancy.skills else [],
+
+            "company_type_name": (
+                company.company_type.name
+                if company and company.company_type
+                else None
+            ),
+            "company_description": company.description if company else None,
+            "company_website": company.website if company else None,
+            "company_logo": company.logo if company else None,
+            "company_founded_year": company.founded_year if company else None,
+            "company_employee_count": company.employee_count if company else None,
+
+            # Совместимость со старым фронтом
+            "company_city_names": self._company_city_names(company),
+
+            # Новая логика: можно читать полные объекты городов
+            "company_cities": self._company_cities(company),
+        }
+
+    async def get_catalog_items(
+        self,
+        db: AsyncSession,
+        catalog_name: str,
+        skip: int = 0,
+        limit: int = 100,
+    ):
+        if catalog_name == "regions":
+            result = await db.execute(
+                select(Region)
+                .order_by(Region.name.asc())
+                .offset(skip)
+                .limit(limit)
+            )
+
+            regions = result.scalars().all()
+
+            return [
+                {
+                    "id": region.id,
+                    "name": region.name,
+                }
+                for region in regions
+            ]
+
+        if catalog_name == "districts":
+            result = await db.execute(
+                select(District)
+                .options(joinedload(District.region))
+                .order_by(District.name.asc())
+                .offset(skip)
+                .limit(limit)
+            )
+
+            districts = result.scalars().unique().all()
+
+            return [
+                {
+                    "id": district.id,
+                    "name": district.name,
+                    "region_id": district.region_id,
+                    "region_name": district.region.name if district.region else None,
+                }
+                for district in districts
+            ]
+
+        if catalog_name == "cities":
+            result = await db.execute(
+                select(City)
+                .options(
+                    joinedload(City.district).joinedload(District.region),
+                    joinedload(City.settlement_type),
+                )
+                .order_by(City.name.asc())
+                .offset(skip)
+                .limit(limit)
+            )
+
+            cities = result.scalars().unique().all()
+
+            return [
+                self._city_to_dict(city)
+                for city in cities
+            ]
+
         model = self.catalog_map.get(catalog_name)
+
         if not model:
             raise HTTPException(status_code=404, detail="Справочник не найден")
 
         result = await db.execute(
-            select(model).order_by(model.name.asc()).offset(skip).limit(limit)
+            select(model)
+            .order_by(model.name.asc())
+            .offset(skip)
+            .limit(limit)
         )
-        return result.scalars().all()
 
-    async def list_catalog_items(self, db: AsyncSession, catalog_name: str, skip: int, limit: int):
+        items = result.scalars().all()
+
+        return [
+            {
+                "id": item.id,
+                "name": item.name,
+            }
+            for item in items
+        ]
+
+    async def list_catalog_items(
+        self,
+        db: AsyncSession,
+        catalog_name: str,
+        skip: int,
+        limit: int,
+    ):
         return await self.get_catalog_items(db, catalog_name, skip, limit)
 
     async def get_vacancies(
@@ -87,7 +315,8 @@ class PublicService:
             .where(Status.name == self.active_status_name)
             .options(
                 joinedload(Vacancy.company),
-                joinedload(Vacancy.city),
+                joinedload(Vacancy.city).joinedload(City.district).joinedload(District.region),
+                joinedload(Vacancy.city).joinedload(City.settlement_type),
                 joinedload(Vacancy.profession),
                 joinedload(Vacancy.employment_type),
                 joinedload(Vacancy.work_schedule),
@@ -100,63 +329,73 @@ class PublicService:
 
         if city_id:
             stmt = stmt.where(Vacancy.city_id == city_id)
+
         if profession_id:
             stmt = stmt.where(Vacancy.profession_id == profession_id)
+
         if company_id:
             stmt = stmt.where(Vacancy.company_id == company_id)
+
         if employment_type_id:
             stmt = stmt.where(Vacancy.employment_type_id == employment_type_id)
+
         if experience_id:
             stmt = stmt.where(Vacancy.experience_id == experience_id)
+
         if work_schedule_id:
             stmt = stmt.where(Vacancy.work_schedule_id == work_schedule_id)
+
         if salary_from is not None:
             stmt = stmt.where(Vacancy.salary_max >= salary_from)
+
         if salary_to is not None:
             stmt = stmt.where(Vacancy.salary_min <= salary_to)
 
         if search:
             search_value = f"%{search.lower()}%"
-            stmt = stmt.where(
-                or_(
-                    func.lower(Vacancy.title).like(search_value),
-                    func.lower(Vacancy.description).like(search_value),
-                    func.lower(Company.name).like(search_value),
+            stmt = (
+                stmt
+                .join(Vacancy.company)
+                .where(
+                    or_(
+                        func.lower(Vacancy.title).like(search_value),
+                        func.lower(Vacancy.description).like(search_value),
+                        func.lower(Company.name).like(search_value),
+                    )
                 )
-            ).join(Vacancy.company)
+            )
 
         result = await db.execute(stmt.offset(skip).limit(limit))
         vacancies = result.scalars().unique().all()
 
         return [
-            {
-                "id": v.id,
-                "title": v.title,
-                "description": v.description,
-                "salary_min": v.salary_min,
-                "salary_max": v.salary_max,
-                "created_at": v.created_at,
-                "company_name": v.company.name if v.company else None,
-                "city_name": v.city.name if v.city else None,
-                "profession_name": v.profession.name if v.profession else None,
-                "employment_type": v.employment_type.name if v.employment_type else None,
-                "work_schedule": v.work_schedule.name if v.work_schedule else None,
-                "experience": v.experience.name if v.experience else None,
-                "currency": v.currency.name if v.currency else None,
-                "skills": [s.name for s in v.skills] if v.skills else [],
-            }
-            for v in vacancies
+            self._map_vacancy_list_item(vacancy)
+            for vacancy in vacancies
         ]
 
-    async def get_vacancy_detail(self, db: AsyncSession, vacancy_id: int):
+    async def get_vacancy_detail(
+        self,
+        db: AsyncSession,
+        vacancy_id: int,
+    ):
         stmt = (
             select(Vacancy)
             .join(Vacancy.status)
-            .where(Vacancy.id == vacancy_id, Status.name == self.active_status_name)
+            .where(
+                Vacancy.id == vacancy_id,
+                Status.name == self.active_status_name,
+            )
             .options(
-                joinedload(Vacancy.company).selectinload(Company.cities),
                 joinedload(Vacancy.company).joinedload(Company.company_type),
-                joinedload(Vacancy.city),
+                joinedload(Vacancy.company)
+                .selectinload(Company.cities)
+                .joinedload(City.district)
+                .joinedload(District.region),
+                joinedload(Vacancy.company)
+                .selectinload(Company.cities)
+                .joinedload(City.settlement_type),
+                joinedload(Vacancy.city).joinedload(City.district).joinedload(District.region),
+                joinedload(Vacancy.city).joinedload(City.settlement_type),
                 joinedload(Vacancy.profession),
                 joinedload(Vacancy.employment_type),
                 joinedload(Vacancy.work_schedule),
@@ -165,40 +404,14 @@ class PublicService:
                 selectinload(Vacancy.skills),
             )
         )
+
         result = await db.execute(stmt)
         vacancy = result.scalar_one_or_none()
 
         if not vacancy:
             raise HTTPException(status_code=404, detail="Вакансия не найдена или недоступна")
 
-        return {
-            "id": vacancy.id,
-            "title": vacancy.title,
-            "description": vacancy.description,
-            "salary_min": vacancy.salary_min,
-            "salary_max": vacancy.salary_max,
-            "created_at": vacancy.created_at,
-            "updated_at": vacancy.updated_at,
-            "company_name": vacancy.company.name if vacancy.company else None,
-            "city_name": vacancy.city.name if vacancy.city else None,
-            "profession_name": vacancy.profession.name if vacancy.profession else None,
-            "employment_type": vacancy.employment_type.name if vacancy.employment_type else None,
-            "work_schedule": vacancy.work_schedule.name if vacancy.work_schedule else None,
-            "currency": vacancy.currency.name if vacancy.currency else None,
-            "experience": vacancy.experience.name if vacancy.experience else None,
-            "skills": [s.name for s in vacancy.skills],
-            "company_type_name": (
-                vacancy.company.company_type.name
-                if vacancy.company and vacancy.company.company_type
-                else None
-            ),
-            "company_description": vacancy.company.description if vacancy.company else None,
-            "company_website": vacancy.company.website if vacancy.company else None,
-            "company_logo": vacancy.company.logo if vacancy.company else None,
-            "company_founded_year": vacancy.company.founded_year if vacancy.company else None,
-            "company_employee_count": vacancy.company.employee_count if vacancy.company else None,
-            "company_cities": [city.name for city in vacancy.company.cities] if vacancy.company else [],
-        }
+        return self._map_vacancy_detail(vacancy)
 
     async def get_companies(
         self,
@@ -229,7 +442,8 @@ class PublicService:
             )
             .outerjoin(vacancies_subq, vacancies_subq.c.company_id == Company.id)
             .options(
-                selectinload(Company.cities),
+                selectinload(Company.cities).joinedload(City.district).joinedload(District.region),
+                selectinload(Company.cities).joinedload(City.settlement_type),
                 joinedload(Company.company_type),
             )
             .order_by(Company.name.asc())
@@ -253,8 +467,13 @@ class PublicService:
         rows = result.unique().all()
 
         items = []
+
         for company, vacancies_count in rows:
-            first_letter = company.name.strip()[0].upper() if company.name and company.name.strip() else "#"
+            first_letter = (
+                company.name.strip()[0].upper()
+                if company.name and company.name.strip()
+                else "#"
+            )
 
             items.append(
                 {
@@ -266,7 +485,8 @@ class PublicService:
                     "founded_year": company.founded_year,
                     "employee_count": company.employee_count,
                     "vacancies_count": int(vacancies_count or 0),
-                    "city_names": [city.name for city in company.cities],
+                    "city_names": self._company_city_names(company),
+                    "cities": self._company_cities(company),
                     "first_letter": first_letter,
                     "company_type_name": company.company_type.name if company.company_type else None,
                 }
@@ -274,7 +494,11 @@ class PublicService:
 
         return items
 
-    async def get_company_detail(self, db: AsyncSession, company_id: int):
+    async def get_company_detail(
+        self,
+        db: AsyncSession,
+        company_id: int,
+    ):
         vacancies_subq = (
             select(
                 Vacancy.company_id.label("company_id"),
@@ -294,7 +518,8 @@ class PublicService:
             .outerjoin(vacancies_subq, vacancies_subq.c.company_id == Company.id)
             .where(Company.id == company_id)
             .options(
-                selectinload(Company.cities),
+                selectinload(Company.cities).joinedload(City.district).joinedload(District.region),
+                selectinload(Company.cities).joinedload(City.settlement_type),
                 joinedload(Company.company_type),
             )
         )
@@ -316,8 +541,13 @@ class PublicService:
             "founded_year": company.founded_year,
             "employee_count": company.employee_count,
             "vacancies_count": int(vacancies_count or 0),
-            "city_names": [city.name for city in company.cities],
-            "first_letter": company.name.strip()[0].upper() if company.name and company.name.strip() else "#",
+            "city_names": self._company_city_names(company),
+            "cities": self._company_cities(company),
+            "first_letter": (
+                company.name.strip()[0].upper()
+                if company.name and company.name.strip()
+                else "#"
+            ),
             "company_type_name": company.company_type.name if company.company_type else None,
         }
 
@@ -327,7 +557,13 @@ class PublicService:
         skip: int,
         limit: int,
     ):
-        stmt = select(Profession).order_by(Profession.name.asc()).offset(skip).limit(limit)
+        stmt = (
+            select(Profession)
+            .order_by(Profession.name.asc())
+            .offset(skip)
+            .limit(limit)
+        )
+
         result = await db.execute(stmt)
         professions = result.scalars().all()
 
