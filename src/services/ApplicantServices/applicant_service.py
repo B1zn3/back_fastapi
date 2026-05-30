@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +41,11 @@ from src.core.exceptions import (
     ResumeNotFoundError,
 )
 from src.utils.logger import logger
+from src.services.files.file_storage_service import (
+    FileStorageError,
+    FileValidationError,
+    file_storage_service,
+)
 
 
 def utc_now_naive() -> datetime:
@@ -809,6 +814,149 @@ class ApplicantService:
 
         return vacancy
 
+    async def _get_favorite_pair_for_response(
+        self,
+        db: AsyncSession,
+        resume_id: int,
+        vacancy_id: int,
+    ) -> tuple[FavoriteVacancy, Resume] | None:
+        """
+        Возвращает FavoriteVacancy + Resume со всеми связями,
+        которые нужны для сериализации ответа.
+
+        Это нужно, чтобы в async SQLAlchemy не было lazy loading ошибки:
+        greenlet_spawn has not been called.
+        """
+
+        result = await db.execute(
+            select(FavoriteVacancy, Resume)
+            .join(FavoriteVacancy.resumes)
+            .where(
+                Resume.id == resume_id,
+                FavoriteVacancy.vacancy_id == vacancy_id,
+            )
+            .options(
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.company),
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.profession),
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.employment_type),
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.work_schedule),
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.currency),
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.experience),
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.status),
+
+                joinedload(FavoriteVacancy.vacancy)
+                .joinedload(Vacancy.city)
+                .joinedload(City.district)
+                .joinedload(District.region),
+
+                joinedload(FavoriteVacancy.vacancy)
+                .joinedload(Vacancy.city)
+                .joinedload(City.settlement_type),
+
+                joinedload(FavoriteVacancy.vacancy).selectinload(Vacancy.skills),
+
+                joinedload(Resume.profession),
+            )
+        )
+
+        return result.unique().one_or_none()
+
+    async def _get_first_favorite_pair_for_response(
+        self,
+        db: AsyncSession,
+        applicant_id: int,
+        vacancy_id: int,
+    ) -> tuple[FavoriteVacancy, Resume] | None:
+        """
+        Возвращает первую пару FavoriteVacancy + Resume для applicant_id и vacancy_id.
+        Используется, когда фронт проверяет состояние избранного без конкретного resume_id.
+        """
+
+        result = await db.execute(
+            select(FavoriteVacancy, Resume)
+            .join(FavoriteVacancy.resumes)
+            .where(
+                Resume.applicant_id == applicant_id,
+                FavoriteVacancy.vacancy_id == vacancy_id,
+            )
+            .options(
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.company),
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.profession),
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.employment_type),
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.work_schedule),
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.currency),
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.experience),
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.status),
+
+                joinedload(FavoriteVacancy.vacancy)
+                .joinedload(Vacancy.city)
+                .joinedload(City.district)
+                .joinedload(District.region),
+
+                joinedload(FavoriteVacancy.vacancy)
+                .joinedload(Vacancy.city)
+                .joinedload(City.settlement_type),
+
+                joinedload(FavoriteVacancy.vacancy).selectinload(Vacancy.skills),
+
+                joinedload(Resume.profession),
+            )
+            .limit(1)
+        )
+
+        return result.unique().one_or_none()
+
+    async def _get_favorite_pairs_for_response(
+        self,
+        db: AsyncSession,
+        applicant_id: int,
+        skip: int = 0,
+        limit: int = 10,
+        resume_id: int | None = None,
+    ) -> list[tuple[FavoriteVacancy, Resume]]:
+        """
+        Возвращает список избранных вакансий со всеми связями для сериализации.
+        Используется вместо favoritevacancycrud.get_by_applicant(...),
+        если тот CRUD не делает eager loading всех связей.
+        """
+
+        query = (
+            select(FavoriteVacancy, Resume)
+            .join(FavoriteVacancy.resumes)
+            .where(Resume.applicant_id == applicant_id)
+            .options(
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.company),
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.profession),
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.employment_type),
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.work_schedule),
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.currency),
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.experience),
+                joinedload(FavoriteVacancy.vacancy).joinedload(Vacancy.status),
+
+                joinedload(FavoriteVacancy.vacancy)
+                .joinedload(Vacancy.city)
+                .joinedload(City.district)
+                .joinedload(District.region),
+
+                joinedload(FavoriteVacancy.vacancy)
+                .joinedload(Vacancy.city)
+                .joinedload(City.settlement_type),
+
+                joinedload(FavoriteVacancy.vacancy).selectinload(Vacancy.skills),
+
+                joinedload(Resume.profession),
+            )
+            .offset(skip)
+            .limit(limit)
+        )
+
+        if resume_id is not None:
+            query = query.where(Resume.id == resume_id)
+
+        result = await db.execute(query)
+
+        return list(result.unique().all())
+
     def _serialize_favorite_resume(
         self,
         resume: Resume,
@@ -932,7 +1080,7 @@ class ApplicantService:
 
             await db.commit()
 
-            pair = await self.favoritevacancycrud.get_for_resume_and_vacancy(
+            pair = await self._get_favorite_pair_for_response(
                 db=db,
                 resume_id=resume.id,
                 vacancy_id=vacancy_id,
@@ -989,7 +1137,7 @@ class ApplicantService:
         resume = await self._get_resume_or_raise(db, resume_id, applicant_id)
 
         try:
-            pair = await self.favoritevacancycrud.get_for_resume_and_vacancy(
+            pair = await self._get_favorite_pair_for_response(
                 db=db,
                 resume_id=resume.id,
                 vacancy_id=vacancy_id,
@@ -1053,7 +1201,7 @@ class ApplicantService:
         if resume_id is not None:
             await self._get_resume_or_raise(db, resume_id, applicant_id)
 
-        favorites = await self.favoritevacancycrud.get_by_applicant(
+        favorites = await self._get_favorite_pairs_for_response(
             db=db,
             applicant_id=applicant_id,
             skip=skip,
@@ -1078,13 +1226,13 @@ class ApplicantService:
         if resume_id is not None:
             resume = await self._get_resume_or_raise(db, resume_id, applicant_id)
 
-            pair = await self.favoritevacancycrud.get_for_resume_and_vacancy(
+            pair = await self._get_favorite_pair_for_response(
                 db=db,
                 resume_id=resume.id,
                 vacancy_id=vacancy_id,
             )
         else:
-            pair = await self.favoritevacancycrud.get_first_for_applicant_and_vacancy(
+            pair = await self._get_first_favorite_pair_for_response(
                 db=db,
                 applicant_id=applicant_id,
                 vacancy_id=vacancy_id,
@@ -1109,5 +1257,117 @@ class ApplicantService:
             "resume": self._serialize_favorite_resume(resume),
         }
 
+    async def upload_photo(
+        self,
+        db: AsyncSession,
+        user_id: int,
+        file: UploadFile,
+    ) -> dict:
+        applicant = await self._get_applicant_or_raise(
+            db=db,
+            user_id=user_id,
+        )
+
+        old_photo_url = applicant.photo
+        uploaded = None
+
+        try:
+            uploaded = await file_storage_service.upload_applicant_photo(
+                applicant_id=applicant.id,
+                file=file,
+            )
+
+            applicant.photo = uploaded.file_url
+
+            await self._touch_all_applicant_resumes(
+                db=db,
+                applicant_id=applicant.id,
+            )
+
+            await db.commit()
+
+            if old_photo_url and old_photo_url != uploaded.file_url:
+                await file_storage_service.delete_file(old_photo_url)
+
+            return await self.get_profile(
+                db=db,
+                user_id=user_id,
+            )
+
+        except (FileValidationError, FileStorageError) as e:
+            await db.rollback()
+
+            if uploaded:
+                await file_storage_service.delete_file(uploaded.object_key)
+
+            raise HTTPException(
+                status_code=400,
+                detail=str(e),
+            )
+
+        except HTTPException:
+            await db.rollback()
+
+            if uploaded:
+                await file_storage_service.delete_file(uploaded.object_key)
+
+            raise
+
+        except Exception as e:
+            await db.rollback()
+
+            if uploaded:
+                await file_storage_service.delete_file(uploaded.object_key)
+
+            logger.error(f"Unexpected error in upload_photo: {e}", exc_info=True)
+
+            raise HTTPException(
+                status_code=500,
+                detail="Внутренняя ошибка сервера",
+            )
+
+    async def delete_photo(
+        self,
+        db: AsyncSession,
+        user_id: int,
+    ) -> dict:
+        applicant = await self._get_applicant_or_raise(
+            db=db,
+            user_id=user_id,
+        )
+
+        old_photo_url = applicant.photo
+
+        try:
+            applicant.photo = None
+
+            await self._touch_all_applicant_resumes(
+                db=db,
+                applicant_id=applicant.id,
+            )
+
+            await db.commit()
+
+            if old_photo_url:
+                await file_storage_service.delete_file(old_photo_url)
+
+            return await self.get_profile(
+                db=db,
+                user_id=user_id,
+            )
+
+        except HTTPException:
+            await db.rollback()
+            raise
+
+        except Exception as e:
+            await db.rollback()
+
+            logger.error(f"Unexpected error in delete_photo: {e}", exc_info=True)
+
+            raise HTTPException(
+                status_code=500,
+                detail="Внутренняя ошибка сервера",
+            )
 
 applicant_service = ApplicantService()

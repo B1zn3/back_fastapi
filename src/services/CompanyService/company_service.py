@@ -4,7 +4,7 @@ from typing import Any, Optional
 import logging
 import re
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +38,11 @@ from src.schemas.company_schemas.employer_application_schema import (
 )
 from src.schemas.company_schemas.vacancy_schema import VacancyCreate, VacancyUpdate
 
+from src.services.files.file_storage_service import (
+    FileStorageError,
+    FileValidationError,
+    file_storage_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -2226,6 +2231,136 @@ class CompanyService:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Ошибка базы данных",
+            )
+        
+    async def upload_logo(
+        self,
+        db: AsyncSession,
+        company: Company,
+        file: UploadFile,
+    ) -> dict:
+        old_logo_url = company.logo
+        uploaded = None
+
+        try:
+            uploaded = await file_storage_service.upload_company_logo(
+                company_id=company.id,
+                file=file,
+            )
+
+            company.logo = uploaded.file_url
+
+            await db.commit()
+
+            loaded_company = await self.get_company_by_id_with_details(
+                db=db,
+                company_id=company.id,
+            )
+
+            if not loaded_company:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Компания не найдена",
+                )
+
+            if old_logo_url and old_logo_url != uploaded.file_url:
+                await file_storage_service.delete_file(old_logo_url)
+
+            return self.map_company(loaded_company)
+
+        except (FileValidationError, FileStorageError) as e:
+            await db.rollback()
+
+            if uploaded:
+                await file_storage_service.delete_file(uploaded.object_key)
+
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
+
+        except HTTPException:
+            await db.rollback()
+
+            if uploaded:
+                await file_storage_service.delete_file(uploaded.object_key)
+
+            raise
+
+        except SQLAlchemyError as e:
+            await db.rollback()
+
+            if uploaded:
+                await file_storage_service.delete_file(uploaded.object_key)
+
+            logger.error(f"DB error in upload_logo: {e}")
+
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Ошибка базы данных",
+            )
+
+        except Exception as e:
+            await db.rollback()
+
+            if uploaded:
+                await file_storage_service.delete_file(uploaded.object_key)
+
+            logger.error(f"Unexpected error in upload_logo: {e}", exc_info=True)
+
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Внутренняя ошибка сервера",
+            )
+
+    async def delete_logo(
+        self,
+        db: AsyncSession,
+        company: Company,
+    ) -> dict:
+        old_logo_url = company.logo
+
+        try:
+            company.logo = None
+
+            await db.commit()
+
+            loaded_company = await self.get_company_by_id_with_details(
+                db=db,
+                company_id=company.id,
+            )
+
+            if not loaded_company:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Компания не найдена",
+                )
+
+            if old_logo_url:
+                await file_storage_service.delete_file(old_logo_url)
+
+            return self.map_company(loaded_company)
+
+        except HTTPException:
+            await db.rollback()
+            raise
+
+        except SQLAlchemyError as e:
+            await db.rollback()
+            logger.error(f"DB error in delete_logo: {e}")
+
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Ошибка базы данных",
+            )
+
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Unexpected error in delete_logo: {e}", exc_info=True)
+
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Внутренняя ошибка сервера",
             )
 
 

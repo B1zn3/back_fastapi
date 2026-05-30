@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
@@ -493,4 +493,27 @@ async def get_my_applications(
         db,
         applicant.id,
         **pagination,
+    )
+
+@applicant_router.post("/me/photo", response_model=ApplicantResponse)
+async def upload_my_applicant_photo(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_role("applicant")),
+    db: AsyncSession = Depends(get_db),
+):
+    return await applicant_service.upload_photo(
+        db=db,
+        user_id=current_user.id,
+        file=file,
+    )
+
+
+@applicant_router.delete("/me/photo", response_model=ApplicantResponse)
+async def delete_my_applicant_photo(
+    current_user: User = Depends(require_role("applicant")),
+    db: AsyncSession = Depends(get_db),
+):
+    return await applicant_service.delete_photo(
+        db=db,
+        user_id=current_user.id,
     )

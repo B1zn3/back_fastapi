@@ -1,10 +1,14 @@
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import (
     APIRouter,
     Depends,
+    File,
+    Form,
     HTTPException,
     Query,
+    UploadFile,
     status,
     WebSocket,
     WebSocketDisconnect,
@@ -155,12 +159,66 @@ async def send_chat_message_http(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        return await chat_service.send_message(
+        message = await chat_service.send_message(
             db=db,
             chat_id=chat_id,
             current_user=current_user,
             message_data=message_data,
         )
+
+        await chat_ws_manager.broadcast_to_chat(
+            chat_id=chat_id,
+            payload={
+                "type": "message",
+                "message": jsonable_encoder(message),
+            },
+        )
+
+        return message
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except BaseAppException as e:
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.message,
+        )
+
+
+@chat_router.post(
+    "/{chat_id}/messages/attachments",
+    response_model=ChatMessageResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def send_chat_message_with_attachments(
+    chat_id: int,
+    text: Optional[str] = Form(default=None),
+    files: list[UploadFile] = File(default=[]),
+    current_user: User = Depends(get_current_chat_user),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        message = await chat_service.send_message_with_files(
+            db=db,
+            chat_id=chat_id,
+            current_user=current_user,
+            text=text,
+            files=files,
+        )
+
+        await chat_ws_manager.broadcast_to_chat(
+            chat_id=chat_id,
+            payload={
+                "type": "message",
+                "message": jsonable_encoder(message),
+            },
+        )
+
+        return message
+
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

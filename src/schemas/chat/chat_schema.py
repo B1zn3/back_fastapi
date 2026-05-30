@@ -36,8 +36,9 @@ class ChatMessageResponse(BaseModel):
     sender_id: int
     text: Optional[str] = None
     created_at: datetime
+    read_at: Optional[datetime] = None
     sender: Optional[ChatMessageSenderResponse] = None
-    attachments: list[ChatAttachmentResponse] = []
+    attachments: list[ChatAttachmentResponse] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
@@ -73,11 +74,12 @@ class ChatDetailResponse(BaseModel):
     created_at: datetime
 
     application: Optional[ChatApplicationInfo] = None
-    messages: list[ChatMessageResponse] = []
+    messages: list[ChatMessageResponse] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
-        
+
+
 class ChatReadResponse(BaseModel):
     chat_id: int
     read_messages_count: int

@@ -243,17 +243,9 @@ class Resume(Base):
     applicant: Mapped["Applicant"] = relationship(back_populates="resumes")
     skills: Mapped[List["Skill"]] = relationship(secondary=resume_skills, back_populates="resumes")
     applications: Mapped[List["Application"]] = relationship(back_populates="resume")
-    work_experiences: Mapped[List["WorkExperience"]] = relationship(back_populates="resume")
-
-    changes: Mapped[List["ResumeChange"]] = relationship(
-        back_populates="resume",
-        cascade="all, delete-orphan",
-    )
-
-    favorite_vacancies: Mapped[List["FavoriteVacancy"]] = relationship(
-        secondary=resume_favorite_vacancies,
-        back_populates="resumes",
-    )
+    work_experiences: Mapped[List["WorkExperience"]] = relationship(back_populates="resume", cascade="all, delete-orphan")
+    changes: Mapped[List["ResumeChange"]] = relationship(back_populates="resume", cascade="all, delete-orphan")
+    favorite_vacancies: Mapped[List["FavoriteVacancy"]] = relationship(secondary=resume_favorite_vacancies, back_populates="resumes")
 
 
 class WorkExperience(Base):

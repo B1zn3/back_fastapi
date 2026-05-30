@@ -112,6 +112,22 @@ class MessageCrud(BaseCrud):
     def __init__(self):
         super().__init__(Message)
 
+    async def get_by_id_with_details(
+        self,
+        db: AsyncSession,
+        message_id: int,
+    ) -> Optional[Message]:
+        result = await db.execute(
+            select(Message)
+            .where(Message.id == message_id)
+            .options(
+                selectinload(Message.sender),
+                selectinload(Message.attachments),
+            )
+        )
+
+        return result.scalar_one_or_none()
+
     async def get_by_chat_id(
         self,
         db: AsyncSession,
@@ -169,6 +185,32 @@ class MessageCrud(BaseCrud):
 class MessageAttachmentCrud(BaseCrud):
     def __init__(self):
         super().__init__(MessageAttachment)
+
+    async def create_many_for_message(
+        self,
+        db: AsyncSession,
+        message_id: int,
+        attachments_data: list[dict],
+    ) -> list[MessageAttachment]:
+        attachments = [
+            MessageAttachment(
+                message_id=message_id,
+                file_url=item["file_url"],
+                file_name=item.get("file_name"),
+                file_type=item.get("file_type"),
+                file_size=item.get("file_size"),
+                created_at=item["created_at"],
+            )
+            for item in attachments_data
+        ]
+
+        if not attachments:
+            return []
+
+        db.add_all(attachments)
+        await db.flush()
+
+        return attachments
 
 
 chatcrud = ChatCrud()

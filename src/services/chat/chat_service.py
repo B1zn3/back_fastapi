@@ -1,12 +1,19 @@
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
+from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import AccessDeniedError
-from src.cruds.chat.chat_crud import chatcrud, messagecrud
+from src.cruds.chat.chat_crud import chatcrud, messageattachmentcrud, messagecrud
 from src.models.model import Chat, User
 from src.schemas.chat.chat_schema import ChatMessageCreate
+from src.services.files.file_storage_service import (
+    FileStorageError,
+    FileValidationError,
+    StoredFile,
+    file_storage_service,
+)
 
 
 def utc_now_naive() -> datetime:
@@ -17,6 +24,8 @@ class ChatService:
     def __init__(self):
         self.chatcrud = chatcrud
         self.messagecrud = messagecrud
+        self.messageattachmentcrud = messageattachmentcrud
+        self.file_storage_service = file_storage_service
 
     def _get_last_message(self, chat: Chat):
         if not chat.messages:
@@ -264,6 +273,59 @@ class ChatService:
             for message in messages
         ]
 
+    async def _create_message_with_uploaded_attachments(
+        self,
+        db: AsyncSession,
+        chat_id: int,
+        current_user: User,
+        text: Optional[str],
+        uploaded_files: list[StoredFile],
+    ) -> dict:
+        normalized_text = (text or "").strip() or None
+
+        if not normalized_text and not uploaded_files:
+            raise ValueError("Сообщение не может быть пустым")
+
+        now = utc_now_naive()
+
+        message = await self.messagecrud.create(
+            db=db,
+            obj_data={
+                "chat_id": chat_id,
+                "sender_id": current_user.id,
+                "text": normalized_text,
+                "created_at": now,
+                "read_at": None,
+            },
+        )
+
+        await self.messageattachmentcrud.create_many_for_message(
+            db=db,
+            message_id=message.id,
+            attachments_data=[
+                {
+                    "file_url": uploaded.file_url,
+                    "file_name": uploaded.file_name,
+                    "file_type": uploaded.file_type,
+                    "file_size": uploaded.file_size,
+                    "created_at": now,
+                }
+                for uploaded in uploaded_files
+            ],
+        )
+
+        await db.commit()
+
+        created_message = await self.messagecrud.get_by_id_with_details(
+            db=db,
+            message_id=message.id,
+        )
+
+        if not created_message:
+            raise ValueError("Не удалось получить созданное сообщение")
+
+        return self._serialize_message(created_message)
+
     async def send_message(
         self,
         db: AsyncSession,
@@ -289,31 +351,82 @@ class ChatService:
         if not text:
             raise ValueError("Сообщение не может быть пустым")
 
-        message = await self.messagecrud.create(
-            db=db,
-            obj_data={
-                "chat_id": chat_id,
-                "sender_id": current_user.id,
-                "text": text,
-                "created_at": utc_now_naive(),
-                "read_at": None,
-            },
-        )
-
-        await db.commit()
-
-        messages = await self.messagecrud.get_by_chat_id(
+        return await self._create_message_with_uploaded_attachments(
             db=db,
             chat_id=chat_id,
-            skip=0,
-            limit=1_000_000,
+            current_user=current_user,
+            text=text,
+            uploaded_files=[],
         )
 
-        created_message = next(
-            item for item in messages if item.id == message.id
+    async def send_message_with_files(
+        self,
+        db: AsyncSession,
+        chat_id: int,
+        current_user: User,
+        text: Optional[str],
+        files: list[UploadFile],
+    ):
+        chat = await self.chatcrud.get_with_details(
+            db=db,
+            chat_id=chat_id,
         )
 
-        return self._serialize_message(created_message)
+        if not chat:
+            raise AccessDeniedError("Чат не найден или нет доступа")
+
+        self._check_chat_access(
+            chat=chat,
+            current_user=current_user,
+        )
+
+        normalized_text = (text or "").strip()
+
+        if len(normalized_text) > 5000:
+            raise ValueError("Сообщение должно быть не длиннее 5000 символов")
+
+        clean_files = [file for file in files if file and file.filename]
+
+        if len(clean_files) > self.file_storage_service.max_chat_files_per_message:
+            raise ValueError(
+                f"Можно отправить не больше "
+                f"{self.file_storage_service.max_chat_files_per_message} файлов за раз"
+            )
+
+        if not normalized_text and not clean_files:
+            raise ValueError("Добавьте текст или файл")
+
+        uploaded_files: list[StoredFile] = []
+
+        try:
+            for file in clean_files:
+                uploaded = await self.file_storage_service.upload_chat_file(
+                    chat_id=chat_id,
+                    file=file,
+                )
+                uploaded_files.append(uploaded)
+
+            return await self._create_message_with_uploaded_attachments(
+                db=db,
+                chat_id=chat_id,
+                current_user=current_user,
+                text=normalized_text,
+                uploaded_files=uploaded_files,
+            )
+
+        except (FileValidationError, FileStorageError) as e:
+            for uploaded in uploaded_files:
+                await self.file_storage_service.delete_file(uploaded.object_key)
+
+            await db.rollback()
+            raise ValueError(str(e))
+
+        except Exception:
+            for uploaded in uploaded_files:
+                await self.file_storage_service.delete_file(uploaded.object_key)
+
+            await db.rollback()
+            raise
 
     async def mark_chat_as_read(
         self,

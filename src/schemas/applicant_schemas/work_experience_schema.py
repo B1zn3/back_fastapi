@@ -16,7 +16,7 @@ class WorkExperienceBase(BaseModel):
         return v
 
 class WorkExperienceCreate(WorkExperienceBase):
-    resume_id: int = Field(..., example=1)
+    pass
 
 class WorkExperienceUpdate(WorkExperienceBase):
     pass

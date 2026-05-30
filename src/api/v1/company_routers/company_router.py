@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.deps.db_deps import get_db
@@ -405,4 +405,27 @@ async def get_candidate_resume_detail(
     return await company_service.get_candidate_resume_detail(
         db=db,
         resume_id=resume_id,
+    )
+
+@company_router.post("/me/logo", response_model=CompanyResponse)
+async def upload_my_company_logo(
+    file: UploadFile = File(...),
+    company: Company = Depends(get_current_company),
+    db: AsyncSession = Depends(get_db),
+):
+    return await company_service.upload_logo(
+        db=db,
+        company=company,
+        file=file,
+    )
+
+
+@company_router.delete("/me/logo", response_model=CompanyResponse)
+async def delete_my_company_logo(
+    company: Company = Depends(get_current_company),
+    db: AsyncSession = Depends(get_db),
+):
+    return await company_service.delete_logo(
+        db=db,
+        company=company,
     )
